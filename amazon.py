@@ -203,3 +203,44 @@ with tab1:
         q = search_query.lower()
         filtered_df = filtered_df[
             filtered_df['Titolo'].str.lower().str.contains(q) |
+            filtered_df['Autore'].str.lower().str.contains(q)
+        ]
+
+    # Ordinamento
+    if sort_option == "Recensioni (Decrescente)":
+        filtered_df = filtered_df.sort_values(by="Recensioni", ascending=False)
+    elif sort_option == "Recensioni (Crescente)":
+        filtered_df = filtered_df.sort_values(by="Recensioni", ascending=True)
+    elif sort_option == "Data (Recenti)":
+        filtered_df = filtered_df.sort_values(by="Data", ascending=False)
+
+    # Metriche rapide
+    st.caption(f"Visualizzati {len(filtered_df)} libri su {len(df)} totali.")
+    
+    # Mostra Griglia
+    display_book_grid(filtered_df, key_prefix="explore")
+
+# === TAB 2: CONTENUTI SALVATI ===
+with tab2:
+    if not st.session_state.favorites:
+        st.warning("Non hai ancora salvato nessun libro. Torna su 'Esplora' e clicca su ❤️ Salva.")
+    else:
+        # Filtra il DataFrame originale tenendo solo gli ASIN salvati
+        fav_df = df[df['ASIN'].isin(st.session_state.favorites)].copy()
+        
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            st.success(f"Hai salvato **{len(fav_df)}** libri interessanti.")
+        with c2:
+            # Tasto per scaricare la lista dei preferiti
+            csv = fav_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Scarica Preferiti (CSV)",
+                data=csv,
+                file_name="i_miei_libri_preferiti.csv",
+                mime="text/csv"
+            )
+        
+        st.divider()
+        # Mostra Griglia Preferiti
+        display_book_grid(fav_df, key_prefix="favs")
