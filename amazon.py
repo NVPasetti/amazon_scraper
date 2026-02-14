@@ -61,22 +61,39 @@ def toggle_favorite(asin):
     else:
         st.session_state.favorites.add(asin)
 
-# --- CARICAMENTO DATI ---
+# --- CARICAMENTO DATI (FIX ROBUSTEZZA) ---
 FILE_NAME = "amazon_libri_multicat.csv"
 
 @st.cache_data
 def load_data():
     if not os.path.exists(FILE_NAME):
         return None
+    
     try:
+        # TENTATIVO 1: Separatore virgola (Standard)
         df = pd.read_csv(FILE_NAME)
-        # Convertiamo recensioni in numeri interi
+        
+        # Se fallisce il riconoscimento delle colonne, prova il punto e virgola
+        if 'Categoria' not in df.columns:
+             df = pd.read_csv(FILE_NAME, sep=';')
+        
+        # Se ancora non trova la colonna, il file ha un problema di intestazione
+        if 'Categoria' not in df.columns:
+            st.error(f"❌ Errore nel file CSV: Colonna 'Categoria' non trovata. Colonne rilevate: {list(df.columns)}")
+            return None
+
+        # Pulizia dati
         df['Recensioni'] = pd.to_numeric(df['Recensioni'], errors='coerce').fillna(0).astype(int)
         # Assicuriamoci che ASIN sia stringa per evitare errori di confronto
         df['ASIN'] = df['ASIN'].astype(str)
+        
+        # Rimuove eventuali righe vuote critiche
+        df.dropna(subset=['Titolo', 'ASIN'], inplace=True)
+        
         return df
+
     except Exception as e:
-        st.error(f"Errore nella lettura del file CSV: {e}")
+        st.error(f"Errore grave nella lettura del file CSV: {e}")
         return None
 
 df = load_data()
@@ -84,8 +101,9 @@ df = load_data()
 # --- TITOLO ---
 st.title("📚 Amazon Book Scout")
 
+# Se il dataframe non è stato caricato, ferma l'app qui
 if df is None:
-    st.error(f"⚠️ File '{FILE_NAME}' non trovato. Carica il file CSV nella stessa cartella dell'app o su GitHub.")
+    st.warning(f"⚠️ File '{FILE_NAME}' non trovato o corrotto. Verifica che sia stato caricato su GitHub correttamente.")
     st.stop()
 
 # --- FUNZIONE PER DISEGNARE LA GRIGLIA ---
@@ -106,7 +124,7 @@ def display_book_grid(dataframe, key_prefix="grid"):
                 with st.container(border=True):
                     # 1. Copertina
                     img_url = book['Copertina']
-                    if pd.isna(img_url) or img_url == "":
+                    if pd.isna(img_url) or img_url == "" or str(img_url) == "nan":
                         st.text("No Image")
                     else:
                         st.image(img_url, use_container_width=True)
@@ -150,11 +168,24 @@ def display_book_grid(dataframe, key_prefix="grid"):
 
 # --- SIDEBAR FILTRI ---
 st.sidebar.header("🛠️ Filtri")
-cats = sorted(df['Categoria'].unique())
+
+# Verifica sicurezza: se la colonna Categoria esiste ma è vuota
+unique_cats = df['Categoria'].dropna().unique()
+if len(unique_cats) > 0:
+    cats = sorted(unique_cats)
+else:
+    cats = []
+
 selected_cats = st.sidebar.multiselect("Categoria", cats, default=cats)
 
-max_rev = int(df['Recensioni'].max())
-min_rev_filter = st.sidebar.slider("Minimo Recensioni", 0, max_rev, 60, step=10)
+# Slider Recensioni
+if not df.empty:
+    max_rev = int(df['Recensioni'].max())
+    # Se max_rev è 0 o molto basso, impostiamo un default sicuro
+    if max_rev < 10: max_rev = 100 
+    min_rev_filter = st.sidebar.slider("Minimo Recensioni", 0, max_rev, 60, step=10)
+else:
+    min_rev_filter = 0
 
 search_query = st.sidebar.text_input("🔍 Cerca Titolo o Autore")
 sort_option = st.sidebar.selectbox("Ordina per", ["Recensioni (Decrescente)", "Recensioni (Crescente)", "Data (Recenti)"])
@@ -172,44 +203,3 @@ with tab1:
         q = search_query.lower()
         filtered_df = filtered_df[
             filtered_df['Titolo'].str.lower().str.contains(q) |
-            filtered_df['Autore'].str.lower().str.contains(q)
-        ]
-
-    # Ordinamento
-    if sort_option == "Recensioni (Decrescente)":
-        filtered_df = filtered_df.sort_values(by="Recensioni", ascending=False)
-    elif sort_option == "Recensioni (Crescente)":
-        filtered_df = filtered_df.sort_values(by="Recensioni", ascending=True)
-    elif sort_option == "Data (Recenti)":
-        filtered_df = filtered_df.sort_values(by="Data", ascending=False)
-
-    # Metriche rapide
-    st.caption(f"Visualizzati {len(filtered_df)} libri su {len(df)} totali.")
-    
-    # Mostra Griglia
-    display_book_grid(filtered_df, key_prefix="explore")
-
-# === TAB 2: CONTENUTI SALVATI ===
-with tab2:
-    if not st.session_state.favorites:
-        st.warning("Non hai ancora salvato nessun libro. Torna su 'Esplora' e clicca su ❤️ Salva.")
-    else:
-        # Filtra il DataFrame originale tenendo solo gli ASIN salvati
-        fav_df = df[df['ASIN'].isin(st.session_state.favorites)].copy()
-        
-        c1, c2 = st.columns([3, 1])
-        with c1:
-            st.success(f"Hai salvato **{len(fav_df)}** libri interessanti.")
-        with c2:
-            # Tasto per scaricare la lista dei preferiti
-            csv = fav_df.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="📥 Scarica Preferiti (CSV)",
-                data=csv,
-                file_name="i_miei_libri_preferiti.csv",
-                mime="text/csv"
-            )
-        
-        st.divider()
-        # Mostra Griglia Preferiti
-        display_book_grid(fav_df, key_prefix="favs")
