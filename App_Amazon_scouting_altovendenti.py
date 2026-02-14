@@ -59,7 +59,7 @@ def toggle_favorite(asin):
     else:
         st.session_state.favorites.add(asin)
 
-# --- CARICAMENTO DATI (VERSIONE BLINDATA) ---
+# --- CARICAMENTO DATI (FIX COLONNA + ROBUSTEZZA) ---
 FILE_NAME = "amazon_libri_multicat.csv"
 
 @st.cache_data
@@ -69,49 +69,52 @@ def load_data():
     
     df = None
     try:
-        # TENTATIVO 1: Lettura standard (virgola)
+        # TENTATIVO 1: Lettura standard
         df = pd.read_csv(FILE_NAME)
-        
-        # Se non trova le colonne, o se c'è l'errore di parsing, proviamo strategie più aggressive
-        if 'Categoria' not in df.columns or len(df.columns) < 2:
-            raise ValueError("Separatore standard fallito")
-
+        # Se ha letto male le colonne (es. tutto in una colonna), prova altri separatori
+        if len(df.columns) < 2:
+             df = pd.read_csv(FILE_NAME, sep=';')
+             
     except:
+        # TENTATIVO 2: Motore Python (più lento ma più intelligente per file corrotti)
         try:
-            # TENTATIVO 2: Separatore punto e virgola (Excel)
-            df = pd.read_csv(FILE_NAME, sep=';')
-            if 'Categoria' not in df.columns:
-                raise ValueError("Separatore Excel fallito")
-        except:
-            # TENTATIVO 3 (ULTIMA SPIAGGIA): Motore Python + Ignora errori
-            # Questo risolve l'errore "Expected 1 fields in line 41"
-            try:
-                df = pd.read_csv(
-                    FILE_NAME, 
-                    sep=None,           # Cerca di indovinare
-                    engine='python',    # Più robusto
-                    on_bad_lines='skip' # Salta le righe rotte invece di crashare
-                )
-            except Exception as e:
-                st.error(f"❌ Impossibile leggere il file CSV. Errore: {e}")
-                return None
+            df = pd.read_csv(
+                FILE_NAME, 
+                sep=None, 
+                engine='python', 
+                on_bad_lines='skip'
+            )
+        except Exception as e:
+            st.error(f"❌ Impossibile leggere il file CSV. Errore: {e}")
+            return None
 
-    # Controllo finale colonne
-    if df is not None and 'Categoria' in df.columns:
+    if df is not None:
+        # --- FIX NOMI COLONNE ---
+        # Normalizziamo i nomi delle colonne. Rimuoviamo spazi extra.
+        df.columns = df.columns.str.strip()
+        
+        # Se esiste "Categoria_Source", la rinominiamo in "Categoria" così il resto dell'app funziona
+        if 'Categoria_Source' in df.columns:
+            df.rename(columns={'Categoria_Source': 'Categoria'}, inplace=True)
+
+        # Controllo finale: abbiamo la colonna Categoria ora?
+        if 'Categoria' not in df.columns:
+            st.error(f"❌ Colonna 'Categoria' (o 'Categoria_Source') non trovata. Colonne presenti: {list(df.columns)}")
+            return None
+
         # Pulizia Dati
         try:
-            # Pulisce recensioni da eventuali caratteri non numerici
+            # Pulisce recensioni
             df['Recensioni'] = pd.to_numeric(df['Recensioni'], errors='coerce').fillna(0).astype(int)
             df['ASIN'] = df['ASIN'].astype(str)
             
-            # Rimuove duplicati (importante per evitare crash dei bottoni)
+            # Rimuove duplicati
             df.drop_duplicates(subset=['ASIN'], inplace=True)
             return df
         except Exception as e:
              st.error(f"Errore nella pulizia dati: {e}")
              return None
     else:
-        st.error("❌ Il file CSV non contiene la colonna 'Categoria'. Controlla il file.")
         return None
 
 df = load_data()
