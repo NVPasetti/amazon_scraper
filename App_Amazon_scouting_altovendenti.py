@@ -3,226 +3,192 @@ import pandas as pd
 import os
 
 # --- CONFIGURAZIONE PAGINA ---
-st.set_page_config(
-    page_title="Amazon Book Scout",
-    page_icon="📚",
-    layout="wide"
-)
+st.set_page_config(page_title="Radar Editoria", page_icon="📚", layout="wide")
 
-# --- CSS CUSTOM ---
-st.markdown("""
-<style>
-    div[data-testid="stImage"] {
-        border-radius: 8px;
-        overflow: hidden;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    .book-title {
-        font-weight: bold;
-        font-size: 15px;
-        margin-top: 8px;
-        height: 45px;
-        overflow: hidden;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        line-height: 1.2;
-    }
-    .book-meta {
-        font-size: 13px;
-        color: #555;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    .review-badge {
-        background-color: #f0f2f6;
-        padding: 3px 6px;
-        border-radius: 4px;
-        font-weight: bold;
-        font-size: 12px;
-        color: #333;
-    }
-    .stButton button {
-        width: 100%;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# --- GESTIONE STATO (PREFERITI) ---
-if 'favorites' not in st.session_state:
-    st.session_state.favorites = set()
-
-def toggle_favorite(asin):
-    if asin in st.session_state.favorites:
-        st.session_state.favorites.remove(asin)
-    else:
-        st.session_state.favorites.add(asin)
-
-# --- CARICAMENTO DATI (FIX COLONNA + ROBUSTEZZA) ---
-FILE_NAME = "amazon_libri_multicat.csv"
-
-@st.cache_data
-def load_data():
-    if not os.path.exists(FILE_NAME):
+# --- FUNZIONI DI CARICAMENTO DATI (CON CACHE) ---
+@st.cache_data(ttl=3600)
+def load_ibs_data(file_name):
+    if not os.path.exists(file_name):
         return None
-    
-    df = None
     try:
-        # TENTATIVO 1: Lettura standard
-        df = pd.read_csv(FILE_NAME)
-        # Se ha letto male le colonne (es. tutto in una colonna), prova altri separatori
-        if len(df.columns) < 2:
-             df = pd.read_csv(FILE_NAME, sep=';')
-             
-    except:
-        # TENTATIVO 2: Motore Python (più lento ma più intelligente per file corrotti)
-        try:
-            df = pd.read_csv(
-                FILE_NAME, 
-                sep=None, 
-                engine='python', 
-                on_bad_lines='skip'
-            )
-        except Exception as e:
-            st.error(f"❌ Impossibile leggere il file CSV. Errore: {e}")
-            return None
-
-    if df is not None:
-        # --- FIX NOMI COLONNE ---
-        # Normalizziamo i nomi delle colonne. Rimuoviamo spazi extra.
-        df.columns = df.columns.str.strip()
-        
-        # Se esiste "Categoria_Source", la rinominiamo in "Categoria" così il resto dell'app funziona
-        if 'Categoria_Source' in df.columns:
-            df.rename(columns={'Categoria_Source': 'Categoria'}, inplace=True)
-
-        # Controllo finale: abbiamo la colonna Categoria ora?
-        if 'Categoria' not in df.columns:
-            st.error(f"❌ Colonna 'Categoria' (o 'Categoria_Source') non trovata. Colonne presenti: {list(df.columns)}")
-            return None
-
-        # Pulizia Dati
-        try:
-            # Pulisce recensioni
-            df['Recensioni'] = pd.to_numeric(df['Recensioni'], errors='coerce').fillna(0).astype(int)
-            df['ASIN'] = df['ASIN'].astype(str)
-            
-            # Rimuove duplicati
-            df.drop_duplicates(subset=['ASIN'], inplace=True)
-            return df
-        except Exception as e:
-             st.error(f"Errore nella pulizia dati: {e}")
-             return None
-    else:
+        df = pd.read_csv(file_name)
+        df['Titolo'] = df['Titolo'].fillna("Senza Titolo")
+        df['Editore'] = df['Editore'].fillna("N/D")
+        if 'Nuovo' not in df.columns:
+            df['Nuovo'] = False
+        else:
+            df['Nuovo'] = df['Nuovo'].astype(bool)
+        return df
+    except Exception as e:
         return None
 
-df = load_data()
+@st.cache_data(ttl=3600)
+def load_amazon_data(file_name):
+    if not os.path.exists(file_name):
+        return None
+    try:
+        df = pd.read_csv(file_name)
+        df['Titolo'] = df['Titolo'].fillna("Senza Titolo")
+        df['Autore'] = df['Autore'].fillna("N/D")
+        return df
+    except Exception as e:
+        return None
 
-# --- INTERFACCIA ---
-st.title("📚 Amazon Book Scout")
+# --- MENU LATERALE PER LA NAVIGAZIONE ---
+st.sidebar.title("🧭 Navigazione")
+sezione = st.sidebar.radio("Scegli la dashboard:", ["📚 Novità (IBS)", "📈 Bestseller (Amazon)"])
+st.sidebar.markdown("---")
 
-if df is None:
-    st.warning(f"⚠️ File '{FILE_NAME}' non trovato o corrotto. Verifica su GitHub.")
-    st.stop()
-
-# --- FUNZIONE GRIGLIA ---
-def display_book_grid(dataframe, key_prefix="grid"):
-    if dataframe.empty:
-        st.info("Nessun libro trovato con questi filtri.")
-        return
-
-    COLS_PER_ROW = 4
-    rows = [dataframe.iloc[i:i+COLS_PER_ROW] for i in range(0, len(dataframe), COLS_PER_ROW)]
-
-    for row_idx, row_chunk in enumerate(rows):
-        cols = st.columns(COLS_PER_ROW)
-        for col, (_, book) in zip(cols, row_chunk.iterrows()):
-            with col:
-                with st.container(border=True):
-                    # Copertina
-                    img = book.get('Copertina', '')
-                    if pd.isna(img) or str(img) == "nan" or str(img).strip() == "":
-                        st.text("No Image")
-                    else:
-                        st.image(str(img), use_container_width=True)
-                    
-                    # Titolo e Autore
-                    title = book.get('Titolo', 'Senza Titolo')
-                    author = book.get('Autore', 'Sconosciuto')
-                    st.markdown(f"<div class='book-title' title='{title}'>{title}</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='book-meta'>✍️ {author}</div>", unsafe_allow_html=True)
-                    
-                    # Dati
-                    reviews = book.get('Recensioni', 0)
-                    date = book.get('Data', 'N/D')
-                    cat = book.get('Categoria', 'Generico')
-                    
-                    st.markdown(f"""
-                        <div style="display:flex; justify-content:space-between; margin:8px 0;">
-                            <span class='review-badge'>⭐ {reviews}</span>
-                            <span style='font-size:10px; color:#888;'>{date}</span>
-                        </div>
-                        <div style="font-size:11px; color:#666; margin-bottom:8px;">📂 {cat}</div>
-                    """, unsafe_allow_html=True)
-                    
-                    # Link
-                    asin = str(book.get('ASIN', ''))
-                    if asin:
-                        st.link_button("Vedi su Amazon 🛒", f"https://www.amazon.it/dp/{asin}", use_container_width=True)
-
-                        # Tasto Preferiti
-                        is_fav = asin in st.session_state.favorites
-                        label = "❌ Rimuovi" if is_fav else "❤️ Salva"
-                        kind = "secondary" if is_fav else "primary"
-                        
-                        st.button(label, key=f"{key_prefix}_{asin}", type=kind, on_click=toggle_favorite, args=(asin,))
-
-# --- SIDEBAR E FILTRI ---
-st.sidebar.header("🛠️ Filtri")
-
-if not df.empty and 'Categoria' in df.columns:
-    cats = sorted(df['Categoria'].dropna().unique())
-else:
-    cats = []
-
-selected_cats = st.sidebar.multiselect("Categoria", cats, default=cats)
-
-if not df.empty:
-    max_r = int(df['Recensioni'].max()) if df['Recensioni'].max() > 0 else 100
-    min_r = st.sidebar.slider("Min Recensioni", 0, max_r, 60, step=10)
-else:
-    min_r = 0
-
-q = st.sidebar.text_input("🔍 Cerca").lower()
-sort_opt = st.sidebar.selectbox("Ordina", ["Recensioni (Decrescente)", "Recensioni (Crescente)", "Data (Recenti)"])
-
-# --- TABS ---
-tab1, tab2 = st.tabs(["🔍 Esplora", "⭐ Salvati"])
-
-with tab1:
-    fdf = df.copy()
-    if selected_cats: fdf = fdf[fdf['Categoria'].isin(selected_cats)]
-    fdf = fdf[fdf['Recensioni'] >= min_r]
+# ==========================================
+# SEZIONE 1: NOVITÀ IBS
+# ==========================================
+if sezione == "📚 Novità (IBS)":
+    st.title("📚 Novità Saggistica (IBS)")
     
-    if q: 
-        fdf = fdf[
-            fdf['Titolo'].astype(str).str.lower().str.contains(q) | 
-            fdf['Autore'].astype(str).str.lower().str.contains(q)
-        ]
-    
-    if sort_opt == "Recensioni (Decrescente)": fdf = fdf.sort_values(by="Recensioni", ascending=False)
-    elif sort_opt == "Recensioni (Crescente)": fdf = fdf.sort_values(by="Recensioni", ascending=True)
-    elif 'Data' in fdf.columns: fdf = fdf.sort_values(by="Data", ascending=False)
+    file_ibs = "dati_per_app.csv"
+    df_ibs = load_ibs_data(file_ibs)
 
-    st.caption(f"Libri visualizzati: {len(fdf)}")
-    display_book_grid(fdf, "exp")
-
-with tab2:
-    if not st.session_state.favorites:
-        st.warning("Nessun libro salvato nei preferiti.")
+    if df_ibs is None:
+        st.error(f"⚠️ File '{file_ibs}' non trovato! Attendi l'aggiornamento automatico.")
     else:
-        favs = df[df['ASIN'].isin(st.session_state.favorites)].copy()
-        if not favs.empty:
-            st.download_button("📥 Scarica CSV", favs.to_csv(index=False).encode('utf-8'), "preferiti.csv", "text/csv")
-            display_book_grid(favs, "fav")
+        # Notifica Nuovi Arrivi
+        nuovi_libri = df_ibs[df_ibs['Nuovo'] == True]
+        num_nuovi = len(nuovi_libri)
+        if num_nuovi > 0:
+            st.success(f"🔔 **Aggiornamento:** Ci sono **{num_nuovi}** nuovi libri rispetto all'ultimo controllo!")
+            with st.expander(f"👀 Vedi la lista dei {num_nuovi} nuovi arrivi"):
+                for _, row in nuovi_libri.iterrows():
+                    st.markdown(f"🆕 **{row['Titolo']}** - {row['Autore']} ({row['Editore']})")
+
+        # Separazione Dati
+        df_vip = df_ibs[df_ibs['Categoria_App'] == 'Editori Selezionati'].copy()
+        df_altri = df_ibs[df_ibs['Categoria_App'] != 'Editori Selezionati'].copy()
+
+        # Filtri Sidebar per IBS
+        st.sidebar.header("🛠️ Strumenti IBS")
+        search_query = st.sidebar.text_input("🔍 Cerca libro o autore")
+        
+        st.sidebar.subheader("Filtra Selezionati")
+        editori_disponibili = sorted(df_vip['Editore'].unique())
+        sel_editore = st.sidebar.multiselect("Seleziona Editore", editori_disponibili)
+        
+        sort_mode = st.sidebar.selectbox("Ordina per:", ["Titolo (A-Z)", "Titolo (Z-A)", "Editore (A-Z)", "Editore (Z-A)"])
+
+        # Applicazione Filtri IBS
+        if search_query:
+            mask_vip = df_vip.astype(str).apply(lambda x: x.str.contains(search_query, case=False)).any(axis=1)
+            df_vip = df_vip[mask_vip]
+            mask_altri = df_altri.astype(str).apply(lambda x: x.str.contains(search_query, case=False)).any(axis=1)
+            df_altri = df_altri[mask_altri]
+
+        if sel_editore:
+            df_vip = df_vip[df_vip['Editore'].isin(sel_editore)]
+
+        if sort_mode == "Titolo (A-Z)": df_vip = df_vip.sort_values(by='Titolo', ascending=True)
+        elif sort_mode == "Titolo (Z-A)": df_vip = df_vip.sort_values(by='Titolo', ascending=False)
+        elif sort_mode == "Editore (A-Z)": df_vip = df_vip.sort_values(by='Editore', ascending=True)
+        elif sort_mode == "Editore (Z-A)": df_vip = df_vip.sort_values(by='Editore', ascending=False)
+
+        # Rendering Tabs
+        tab1, tab2 = st.tabs([f"⭐ Editori Selezionati ({len(df_vip)})", f"📂 Altri Editori ({len(df_altri)})"])
+
+        with tab1:
+            if df_vip.empty: st.info("Nessun libro trovato con i filtri attuali.")
+            for _, row in df_vip.iterrows():
+                with st.container():
+                    c1, c2 = st.columns([1, 5])
+                    with c1:
+                        url = row['Copertina']
+                        if pd.notna(url) and str(url).startswith('http'): st.image(str(url), width=120)
+                        else: st.text("🖼️ No Img")
+                    with c2:
+                        badge = "🆕 " if row.get('Nuovo', False) else ""
+                        st.subheader(f"{badge}{row['Titolo']}")
+                        st.markdown(f"**{row.get('Autore', 'N/D')}** | *{row.get('Editore', 'N/D')}* ({row.get('Anno', '')})")
+                        desc = str(row.get('Descrizione', ''))
+                        if len(desc) > 10 and desc.lower() != "nan":
+                            with st.expander("📖 Leggi trama"): st.write(desc)
+                        link = row.get('Link')
+                        if pd.notna(link) and str(link).startswith('http'): st.markdown(f"[➡️ Vedi su IBS]({link})")
+                    st.divider()
+
+        with tab2:
+            if df_altri.empty: st.info("Nessun libro in questa categoria.")
+            for _, row in df_altri.iterrows():
+                with st.container():
+                    c_img, c_info = st.columns([0.5, 5])
+                    with c_img:
+                        url = row['Copertina']
+                        if pd.notna(url) and str(url).startswith('http'): st.image(str(url), width=60)
+                    with c_info:
+                        badge = "🆕 " if row.get('Nuovo', False) else ""
+                        st.markdown(f"{badge}**{row['Titolo']}**")
+                        st.markdown(f"{row.get('Autore', 'N/D')} - *{row.get('Editore', 'N/D')}*")
+                        link = row.get('Link')
+                        if pd.notna(link) and str(link).startswith('http'): st.markdown(f"[Link]({link})")
+                    st.markdown("---")
+
+# ==========================================
+# SEZIONE 2: BESTSELLER AMAZON
+# ==========================================
+elif sezione == "📈 Bestseller (Amazon)":
+    st.title("📈 I più recensiti su Amazon")
+    st.caption("Stima delle copie vendute in base al volume di recensioni accumulate.")
+
+    file_amazon = "amazon_libri_multicat.csv"
+    df_amz = load_amazon_data(file_amazon)
+
+    if df_amz is None:
+        st.warning("⚠️ Dati Amazon non ancora disponibili. L'app è pronta, attendi che lo scraper generi il primo file CSV.")
+    else:
+        # Filtri Sidebar per Amazon
+        st.sidebar.header("🛠️ Filtri Amazon")
+        
+        # Filtro Categoria
+        categorie_disponibili = ["Tutte"] + sorted(df_amz['Categoria'].unique().tolist())
+        sel_cat_amz = st.sidebar.selectbox("Filtra per Categoria:", categorie_disponibili)
+        
+        # Filtro Minimo Recensioni
+        max_recensioni = int(df_amz['Recensioni'].max())
+        min_recensioni_filtro = st.sidebar.slider(
+            "Minimo Recensioni:", 
+            min_value=0, max_value=max_recensioni, value=60, step=50
+        )
+
+        # Applicazione filtri Amazon
+        if sel_cat_amz != "Tutte":
+            df_amz = df_amz[df_amz['Categoria'] == sel_cat_amz]
+        
+        df_amz = df_amz[df_amz['Recensioni'] >= min_recensioni_filtro]
+        
+        # Ordinamento (sempre per numero recensioni decrescente)
+        df_amz = df_amz.sort_values(by='Recensioni', ascending=False)
+
+        st.info(f"Mostrando **{len(df_amz)}** libri che superano i filtri.")
+
+        # Rendering Lista Amazon
+        for _, row in df_amz.iterrows():
+            with st.container():
+                c1, c2 = st.columns([1, 6])
+                
+                with c1:
+                    url = row['Copertina']
+                    if pd.notna(url) and str(url).startswith('http'):
+                        st.image(str(url), width=100)
+                    else:
+                        st.text("🖼️ No Img")
+                
+                with c2:
+                    st.subheader(row['Titolo'])
+                    st.markdown(f"**{row.get('Autore', 'N/D')}**")
+                    
+                    # Generazione Link Amazon dinamico dall'ASIN
+                    asin = row.get('ASIN', '')
+                    amz_link = f"https://www.amazon.it/dp/{asin}" if pd.notna(asin) else "#"
+                    
+                    # Metriche visive
+                    st.markdown(f"📊 **{int(row['Recensioni'])}** recensioni | 🏷️ Categoria: *{row.get('Categoria', 'N/D')}* | 📅 Data: {row.get('Data', 'N/D')}")
+                    st.markdown(f"[🛒 Vedi su Amazon]({amz_link})")
+                    
+                st.divider()
+        
