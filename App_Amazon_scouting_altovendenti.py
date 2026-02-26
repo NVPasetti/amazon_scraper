@@ -6,7 +6,6 @@ import os
 st.set_page_config(page_title="Amazon Radar", page_icon="📈", layout="wide")
 
 # --- INIZIALIZZAZIONE MEMORIA (SESSION STATE) ---
-# Usiamo un "set" per memorizzare gli ASIN dei libri salvati senza duplicati
 if 'libri_salvati' not in st.session_state:
     st.session_state.libri_salvati = set()
 
@@ -23,7 +22,7 @@ def load_amazon_data(file_name):
     except Exception as e:
         return None
 
-# Funzione callback per il pulsante "Salva/Rimuovi"
+# Funzione callback per il pulsante "Cuore"
 def toggle_salvataggio(asin):
     if asin in st.session_state.libri_salvati:
         st.session_state.libri_salvati.remove(asin)
@@ -57,10 +56,8 @@ else:
     st.sidebar.markdown("---")
     st.sidebar.header("💾 I tuoi salvataggi")
     
-    # Checkbox per filtrare solo i libri salvati
     mostra_solo_salvati = st.sidebar.checkbox(f"Mostra solo i salvati ({len(st.session_state.libri_salvati)})")
     
-    # Pulsante per resettare la lista
     if len(st.session_state.libri_salvati) > 0:
         if st.sidebar.button("🗑️ Svuota lista salvati"):
             st.session_state.libri_salvati.clear()
@@ -72,71 +69,67 @@ else:
     df_filtrato = df_amz.copy()
     
     if mostra_solo_salvati:
-        # Se la spunta è attiva, mostra solo i libri il cui ASIN è nel set di memoria
         df_filtrato = df_filtrato[df_filtrato['ASIN'].isin(st.session_state.libri_salvati)]
     else:
-        # Altrimenti applica i filtri normali
         if sel_cat_amz != "Tutte":
             df_filtrato = df_filtrato[df_filtrato['Categoria'] == sel_cat_amz]
         df_filtrato = df_filtrato[df_filtrato['Recensioni'] >= min_recensioni_filtro]
         
-    # Ordinamento sempre per recensioni decrescenti
     df_filtrato = df_filtrato.sort_values(by='Recensioni', ascending=False)
 
     st.info(f"Mostrando **{len(df_filtrato)}** libri.")
 
     # ==========================================
-    # RENDERING A GRIGLIA (3 COLONNE)
+    # RENDERING A GRIGLIA ALLINEATA (3 COLONNE)
     # ==========================================
-    # Creiamo 3 colonne
-    cols = st.columns(3)
+    # Convertiamo il dataframe in una lista per iterarlo a blocchi di 3
+    lista_libri = list(df_filtrato.iterrows())
     
-    for index, row in enumerate(df_filtrato.iterrows()):
-        row_data = row[1]
-        asin = row_data.get('ASIN', '')
+    # Creiamo una nuova riga (row) ogni 3 libri, così le card sono sempre allineate in alto
+    for i in range(0, len(lista_libri), 3):
+        cols = st.columns(3)
         
-        # Distribuisce le card sulle 3 colonne usando l'operatore modulo (%)
-        col_idx = index % 3
-        
-        with cols[col_idx]:
-            # Usa il container con bordo per un effetto "Card" (Streamlit 1.30+)
-            with st.container(border=True):
-                
-                # Copertina centrata
-                url = row_data['Copertina']
-                if pd.notna(url) and str(url).startswith('http'):
-                    st.image(str(url), width=130)
-                else:
-                    st.markdown("🖼️ *No Img*")
-                
-                # Info Libro
-                st.subheader(row_data['Titolo'], divider="gray")
-                st.markdown(f"✍️ **{row_data.get('Autore', 'N/D')}**")
-                st.markdown(f"📊 **{int(row_data['Recensioni'])}** recensioni")
-                st.caption(f"🏷️ {row_data.get('Categoria', 'N/D')} | 📅 {row_data.get('Data', 'N/D')}")
-                
-                # Link
-                amz_link = f"https://www.amazon.it/dp/{asin}" if pd.notna(asin) else "#"
-                st.markdown(f"[🛒 Apri su Amazon]({amz_link})")
-                
-                # Gestione pulsante Salva
+        # Riempiamo le 3 colonne della riga corrente
+        for j in range(3):
+            if i + j < len(lista_libri):
+                index, row_data = lista_libri[i + j]
+                asin = row_data.get('ASIN', '')
                 is_saved = asin in st.session_state.libri_salvati
                 
-                # Cambia testo e colore in base allo stato
-                if is_saved:
-                    btn_label = "✅ Salvato"
-                    btn_type = "secondary"
-                else:
-                    btn_label = "💾 Salva Libro"
-                    btn_type = "primary"
-                
-                # Il pulsante chiama la funzione `toggle_salvataggio`
-                st.button(
-                    btn_label, 
-                    key=f"btn_{asin}", 
-                    on_click=toggle_salvataggio, 
-                    args=(asin,),
-                    type=btn_type,
-                    use_container_width=True
-                )
-                
+                with cols[j]:
+                    with st.container(border=True):
+                        
+                        # Sotto-colonne per mettere il cuore in alto a destra rispetto al titolo
+                        c_titolo, c_cuore = st.columns([5, 1])
+                        
+                        with c_cuore:
+                            st.button(
+                                "❤️" if is_saved else "🤍", 
+                                key=f"btn_{asin}", 
+                                on_click=toggle_salvataggio, 
+                                args=(asin,),
+                                help="Salva/Rimuovi dalla tua lista"
+                            )
+                            
+                        with c_titolo:
+                            # Titolo più piccolo (solo grassetto anziché subheader) e separatore
+                            st.markdown(f"**{row_data['Titolo']}**")
+                        
+                        st.markdown("---")
+                        
+                        # Copertina
+                        url = row_data['Copertina']
+                        if pd.notna(url) and str(url).startswith('http'):
+                            st.image(str(url), width=120)
+                        else:
+                            st.markdown("🖼️ *No Img*")
+                        
+                        # Info Libro senza l'emoji della mano
+                        st.markdown(f"**{row_data.get('Autore', 'N/D')}**")
+                        st.markdown(f"📊 **{int(row_data['Recensioni'])}** recensioni")
+                        st.caption(f"🏷️ {row_data.get('Categoria', 'N/D')} | 📅 {row_data.get('Data', 'N/D')}")
+                        
+                        # Link
+                        amz_link = f"https://www.amazon.it/dp/{asin}" if pd.notna(asin) else "#"
+                        st.markdown(f"[🛒 Apri su Amazon]({amz_link})")
+                        
