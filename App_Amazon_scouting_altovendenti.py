@@ -75,6 +75,13 @@ def load_amazon_data(file_name):
         df = pd.read_csv(file_name)
         df['Titolo'] = df['Titolo'].fillna("Senza Titolo")
         df['Autore'] = df['Autore'].fillna("N/D")
+        
+        # --- RIMOZIONE DUPLICATI ---
+        # Rimuove i cloni esatti (stesso codice ASIN)
+        df = df.drop_duplicates(subset=['ASIN'])
+        # Rimuove eventuali doppioni con lo stesso Titolo esatto
+        df = df.drop_duplicates(subset=['Titolo'])
+        
         return df
     except Exception:
         return None
