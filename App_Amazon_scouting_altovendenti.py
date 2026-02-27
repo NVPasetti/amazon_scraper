@@ -1,116 +1,70 @@
 import streamlit as st
 import pandas as pd
 import os
-import json
-import textwrap
-import re
-import gspread
-from google.oauth2.service_account import Credentials
+from supabase import create_client, Client
 
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Scouting Amazon", layout="wide")
 
-NOME_FOGLIO_GOOGLE = "Amazon_Wishlist" # <-- ASSICURATI CHE IL NOME SIA CORRETTO SUL TUO DRIVE
-
-# --- CONNESSIONE A GOOGLE SHEETS ---
+# --- CONNESSIONE A SUPABASE ---
 @st.cache_resource
-def get_gspread_client():
-    """Autentica e restituisce il client Google Sheets usando i Secrets."""
-    try:
-        # Legge il JSON dai Secrets di Streamlit
-        creds_dict = json.loads(st.secrets["GCP_CREDENTIALS"])
-        
-        raw_key = creds_dict.get("private_key", "")
-        
-        # --- SOLUZIONE NUCLEARE REGEX ---
-        match = re.search(r'(-----BEGIN.*?KEY-----)(.*?)(-----END.*?KEY-----)', raw_key, flags=re.DOTALL)
-        
-        if match:
-            header, core_key, footer = match.groups()
-            # Rimuove tutti gli spazi, a capo o difetti
-            core_key = re.sub(r'\s+', '', core_key)
-            # Riformatta in blocchi da 64 caratteri
-            righe_pulite = "\n".join(textwrap.wrap(core_key, 64))
-            creds_dict["private_key"] = f"{header}\n{righe_pulite}\n{footer}\n"
-        else:
-            creds_dict["private_key"] = raw_key.replace("\\n", "\n")
-            
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
-        ]
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-        client = gspread.authorize(creds)
-        return client
-        
-    except Exception as e:
-        st.error(f"Errore di connessione a Google Sheets: {e}")
-        return None
+def init_supabase() -> Client:
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
 
-def get_worksheet():
-    client = get_gspread_client()
-    if client:
-        try:
-            # Apre il foglio e seleziona la prima scheda
-            sheet = client.open(NOME_FOGLIO_GOOGLE).sheet1
-            return sheet
-        except Exception as e:
-            st.error(f"Foglio '{NOME_FOGLIO_GOOGLE}' non trovato. L'hai condiviso con l'email del bot?")
-    return None
+try:
+    supabase = init_supabase()
+except Exception as e:
+    st.error(f"Errore di connessione a Supabase: {e}")
+    supabase = None
 
-# --- FUNZIONI PER GESTIRE I PREFERITI SU GOOGLE SHEETS ---
-def carica_preferiti_da_sheets():
-    sheet = get_worksheet()
-    if sheet:
+# --- FUNZIONI DATABASE ---
+def carica_preferiti_db():
+    if supabase:
         try:
-            # Prende tutti i valori della colonna A (saltando l'intestazione "ASIN")
-            valori = sheet.col_values(1)[1:] 
-            return set(valori)
+            # Scarica tutta la colonna 'asin'
+            risposta = supabase.table("wishlist").select("asin").execute()
+            return set(r["asin"] for r in risposta.data)
         except Exception:
             return set()
     return set()
 
-def salva_preferito_su_sheets(asin):
-    sheet = get_worksheet()
-    if sheet:
-        sheet.append_row([asin])
-
-def rimuovi_preferito_da_sheets(asin):
-    sheet = get_worksheet()
-    if sheet:
+def salva_preferito_db(asin):
+    if supabase:
         try:
-            # Trova la cella con l'ASIN e ne elimina la riga
-            cella = sheet.find(asin)
-            if cella:
-                sheet.delete_rows(cella.row)
+            supabase.table("wishlist").insert({"asin": asin}).execute()
         except Exception:
-            pass # L'ASIN non era presente
+            pass # Probabilmente esiste già (Primary Key)
 
-def svuota_salvati():
-    st.session_state.libri_salvati.clear()
-    sheet = get_worksheet()
-    if sheet:
+def rimuovi_preferito_db(asin):
+    if supabase:
         try:
-            sheet.clear() # Cancella tutto
-            try:
-                sheet.update(range_name='A1', values=[['ASIN']])
-            except:
-                sheet.update('A1', [['ASIN']])
-        except Exception as e:
-            st.error(f"Errore durante lo svuotamento del foglio: {e}")
+            supabase.table("wishlist").delete().eq("asin", asin).execute()
+        except Exception:
+            pass
 
-# --- INIZIALIZZAZIONE MEMORIA ---
+def svuota_salvati_db():
+    st.session_state.libri_salvati.clear()
+    if supabase:
+        try:
+            # Elimina tutti i record dove l'asin non è nullo (svuota la tabella)
+            supabase.table("wishlist").delete().neq("asin", "dummy_value").execute()
+        except Exception as e:
+            st.error(f"Errore nello svuotamento: {e}")
+
+# --- INIZIALIZZAZIONE MEMORIA GLOBALE ---
 if 'libri_salvati' not in st.session_state:
-    st.session_state.libri_salvati = carica_preferiti_da_sheets()
+    st.session_state.libri_salvati = carica_preferiti_db()
 
 # Funzione callback per il pulsante "Cuore"
 def toggle_salvataggio(asin):
     if asin in st.session_state.libri_salvati:
         st.session_state.libri_salvati.remove(asin)
-        rimuovi_preferito_da_sheets(asin) # Rimuove da Google
+        rimuovi_preferito_db(asin)
     else:
         st.session_state.libri_salvati.add(asin)
-        salva_preferito_su_sheets(asin) # Aggiunge a Google
+        salva_preferito_db(asin)
 
 # --- FUNZIONE DI CARICAMENTO DATI ---
 @st.cache_data(ttl=3600)
@@ -127,7 +81,7 @@ def load_amazon_data(file_name):
 
 # --- INTESTAZIONE SHOP ---
 st.title("I più venduti - Amazon")
-st.caption("Esplora i libri con più recensioni e aggiungili ai preferiti per rivederli in un secondo momento")
+st.caption("Esplora i libri con più recensioni e aggiungili alla Wishlist globale.")
 
 file_amazon = "amazon_libri_multicat.csv"
 df_amz = load_amazon_data(file_amazon)
@@ -151,14 +105,13 @@ else:
 
     st.sidebar.markdown("---")
     
-    # Sicurezza per evitare che un riavvio lento rompa il conteggio
     num_salvati = len(st.session_state.libri_salvati) if isinstance(st.session_state.libri_salvati, set) else 0
-    st.sidebar.metric(label="❤️ Wishlist", value=f"{num_salvati} libri")
+    st.sidebar.metric(label="❤️ Wishlist Globale", value=f"{num_salvati} libri")
     
-    mostra_solo_salvati = st.sidebar.checkbox("Visualizza solo la tua Wishlist")
+    mostra_solo_salvati = st.sidebar.checkbox("Visualizza solo la Wishlist")
     
     if num_salvati > 0:
-        st.sidebar.button("🗑️ Svuota Wishlist", on_click=svuota_salvati, type="secondary")
+        st.sidebar.button("🗑️ Svuota Wishlist", on_click=svuota_salvati_db, type="secondary")
 
     # ==========================================
     # ELABORAZIONE DATI (FILTRI)
@@ -179,7 +132,7 @@ else:
     st.markdown("---")
 
     # ==========================================
-    # RENDERING A GRIGLIA ALLINEATA (SHOP STYLE)
+    # RENDERING A GRIGLIA ALLINEATA
     # ==========================================
     lista_libri = list(df_filtrato.iterrows())
     
@@ -191,7 +144,6 @@ else:
                 index, row_data = lista_libri[i + j]
                 asin = row_data.get('ASIN', '')
                 
-                # Check di sicurezza aggiuntivo
                 is_saved = asin in st.session_state.libri_salvati if isinstance(st.session_state.libri_salvati, set) else False
                 
                 with cols[j]:
@@ -203,7 +155,7 @@ else:
                                 key=f"btn_{asin}", 
                                 on_click=toggle_salvataggio, 
                                 args=(asin,),
-                                help="Aggiungi o rimuovi dalla Wishlist"
+                                help="Aggiungi o rimuovi dalla Wishlist Globale"
                             )
                         with c_titolo:
                             titolo_corto = row_data['Titolo'][:60] + "..." if len(row_data['Titolo']) > 60 else row_data['Titolo']
