@@ -6,25 +6,6 @@ from supabase import create_client, Client
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Scouting Amazon", layout="wide")
 
-# --- FIX SCROLL VERSO L'ALTO (HACK SENZA IFRAME) ---
-if 'scroll_to_top' not in st.session_state:
-    st.session_state.scroll_to_top = False
-
-if st.session_state.scroll_to_top:
-    # Trucco dell'immagine finta per lanciare JS aggirando i blocchi di sicurezza
-    scroll_script = """
-    <img src="dummy_image" style="display:none;" onerror="
-        let main = document.querySelector('.main');
-        if (main) {
-            main.scrollTo({top: 0, behavior: 'smooth'});
-            main.scrollTop = 0;
-        }
-        window.scrollTo({top: 0, behavior: 'smooth'});
-    ">
-    """
-    st.markdown(scroll_script, unsafe_allow_html=True)
-    st.session_state.scroll_to_top = False
-
 # --- CONNESSIONE A SUPABASE ---
 @st.cache_resource
 def init_supabase() -> Client:
@@ -76,6 +57,15 @@ def svuota_salvati_db():
 if 'libri_salvati' not in st.session_state:
     st.session_state.libri_salvati = carica_preferiti_db()
 
+# Inizializza il limite di libri da mostrare (150 alla volta)
+if 'limite_libri' not in st.session_state:
+    st.session_state.limite_libri = 150
+
+# Inizializza le memorie per i filtri (per resettare il limite se cambi reparto)
+if 'filtro_cat' not in st.session_state: st.session_state.filtro_cat = "Tutte"
+if 'filtro_rec' not in st.session_state: st.session_state.filtro_rec = 60
+if 'filtro_salvati' not in st.session_state: st.session_state.filtro_salvati = False
+
 # Funzione callback per il pulsante "Cuore"
 def toggle_salvataggio(asin):
     if asin in st.session_state.libri_salvati:
@@ -96,9 +86,7 @@ def load_amazon_data(file_name):
         df['Autore'] = df['Autore'].fillna("N/D")
         
         # --- RIMOZIONE DUPLICATI ---
-        # Rimuove i cloni esatti (stesso codice ASIN)
         df = df.drop_duplicates(subset=['ASIN'])
-        # Rimuove eventuali doppioni con lo stesso Titolo esatto
         df = df.drop_duplicates(subset=['Titolo'])
         
         return df
@@ -141,6 +129,19 @@ else:
         st.sidebar.button("🗑️ Svuota Salvati", on_click=svuota_salvati_db, type="secondary")
 
     # ==========================================
+    # CONTROLLO CAMBIO FILTRI
+    # ==========================================
+    # Se l'utente cambia un filtro, resettiamo la vista ai primi 150 libri
+    if (sel_cat_amz != st.session_state.filtro_cat or 
+        min_recensioni_filtro != st.session_state.filtro_rec or 
+        mostra_solo_salvati != st.session_state.filtro_salvati):
+        
+        st.session_state.limite_libri = 150
+        st.session_state.filtro_cat = sel_cat_amz
+        st.session_state.filtro_rec = min_recensioni_filtro
+        st.session_state.filtro_salvati = mostra_solo_salvati
+
+    # ==========================================
     # ELABORAZIONE DATI (FILTRI)
     # ==========================================
     df_filtrato = df_amz.copy()
@@ -155,33 +156,17 @@ else:
         
     df_filtrato = df_filtrato.sort_values(by='Recensioni', ascending=False)
 
-    # ==========================================
-    # SISTEMA DI PAGINAZIONE
-    # ==========================================
-    LIBRI_PER_PAGINA = 30
-    
-    if 'pagina_corrente' not in st.session_state:
-        st.session_state.pagina_corrente = 0
-
     totale_libri = len(df_filtrato)
-    totale_pagine = (totale_libri // LIBRI_PER_PAGINA) + (1 if totale_libri % LIBRI_PER_PAGINA > 0 else 0)
-
-    # Se i filtri cambiano e la pagina salvata sfora il nuovo limite, resettiamo a 0
-    if st.session_state.pagina_corrente >= totale_pagine and totale_pagine > 0:
-        st.session_state.pagina_corrente = 0
-
     st.markdown(f"**{totale_libri}** risultati trovati")
     st.markdown("---")
 
-    # Tagliamo il dataframe per mostrare solo i libri di questa pagina
-    inizio_idx = st.session_state.pagina_corrente * LIBRI_PER_PAGINA
-    fine_idx = inizio_idx + LIBRI_PER_PAGINA
-    df_pagina = df_filtrato.iloc[inizio_idx:fine_idx]
+    # Tagliamo il dataframe per mostrare solo i libri fino al limite attuale (es. 150, 300, 450...)
+    df_mostrato = df_filtrato.iloc[:st.session_state.limite_libri]
 
     # ==========================================
     # RENDERING A GRIGLIA ALLINEATA
     # ==========================================
-    lista_libri = list(df_pagina.iterrows())
+    lista_libri = list(df_mostrato.iterrows())
     
     for i in range(0, len(lista_libri), 3):
         cols = st.columns(3)
@@ -222,25 +207,9 @@ else:
                         st.link_button("Vedi su Amazon", amz_link, type="primary", use_container_width=True)
 
     # ==========================================
-    # PULSANTI DI NAVIGAZIONE PAGINA IN FONDO
+    # PULSANTE "CARICA ALTRI" IN FONDO
     # ==========================================
-    if totale_pagine > 1:
+    if st.session_state.limite_libri < totale_libri:
         st.markdown("---")
-        col_prev, col_info, col_next = st.columns([1, 2, 1])
-        
-        with col_prev:
-            if st.session_state.pagina_corrente > 0:
-                if st.button("⬅️ Pagina Precedente", use_container_width=True):
-                    st.session_state.pagina_corrente -= 1
-                    st.session_state.scroll_to_top = True
-                    st.rerun()
-                    
-        with col_info:
-            st.markdown(f"<div style='text-align: center;'>Pagina <b>{st.session_state.pagina_corrente + 1}</b> di <b>{totale_pagine}</b></div>", unsafe_allow_html=True)
-            
-        with col_next:
-            if st.session_state.pagina_corrente < totale_pagine - 1:
-                if st.button("Pagina Successiva ➡️", use_container_width=True):
-                    st.session_state.pagina_corrente += 1
-                    st.session_state.scroll_to_top = True
-                    st.rerun()
+        # Centriamo il pulsante usando le colonne
+        col_vuota1, col_bottone, col_vuota2 =
