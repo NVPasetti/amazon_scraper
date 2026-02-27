@@ -6,17 +6,26 @@ from supabase import create_client, Client
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Scouting Amazon", layout="wide")
 
-# --- FIX SCROLL VERSO L'ALTO ---
+# --- FIX SCROLL VERSO L'ALTO (POTENZIATO) ---
 if 'scroll_to_top' not in st.session_state:
     st.session_state.scroll_to_top = False
 
 if st.session_state.scroll_to_top:
-    # Inietta un piccolo script invisibile per scrollare in cima
+    # Script che aggira i blocchi iframe e prova tutti i contenitori di Streamlit
     js_scroll = """
     <script>
-        var body = window.parent.document.querySelector(".main");
-        if (body) {
-            body.scrollTop = 0;
+        try {
+            // 1. Prova a scrollare la finestra genitore
+            window.parent.scrollTo({top: 0, behavior: 'smooth'});
+            
+            // 2. Prova a scrollare tutti i possibili contenitori interni di Streamlit
+            const elements = window.parent.document.querySelectorAll('.main, [data-testid="stAppViewContainer"], [data-testid="stMainBlockContainer"]');
+            for (let el of elements) {
+                el.scrollTo({top: 0, behavior: 'smooth'});
+                el.scrollTop = 0;
+            }
+        } catch (e) {
+            console.log("Scroll bloccato dalle policy del browser.");
         }
     </script>
     """
@@ -230,7 +239,7 @@ else:
             if st.session_state.pagina_corrente > 0:
                 if st.button("⬅️ Pagina Precedente", use_container_width=True):
                     st.session_state.pagina_corrente -= 1
-                    st.session_state.scroll_to_top = True  # <--- ATTIVA LO SCROLL
+                    st.session_state.scroll_to_top = True
                     st.rerun()
                     
         with col_info:
@@ -240,5 +249,5 @@ else:
             if st.session_state.pagina_corrente < totale_pagine - 1:
                 if st.button("Pagina Successiva ➡️", use_container_width=True):
                     st.session_state.pagina_corrente += 1
-                    st.session_state.scroll_to_top = True  # <--- ATTIVA LO SCROLL
+                    st.session_state.scroll_to_top = True
                     st.rerun()
