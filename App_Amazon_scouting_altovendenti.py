@@ -6,9 +6,9 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # --- CONFIGURAZIONE PAGINA ---
-st.set_page_config(page_title="Amazon Radar Shop", page_icon="🛍️", layout="wide")
+st.set_page_config(page_title="Scouting Amazon", layout="wide")
 
-NOME_FOGLIO_GOOGLE = "Amazon_Wishlist" # <-- INSERISCI QUI IL NOME ESATTO DEL TUO FOGLIO GOOGLE
+NOME_FOGLIO_GOOGLE = "Amazon_Wishlist" # <-- ASSICURATI CHE IL NOME SIA CORRETTO
 
 # --- CONNESSIONE A GOOGLE SHEETS ---
 @st.cache_resource
@@ -17,6 +17,10 @@ def get_gspread_client():
     try:
         # Legge il JSON dai Secrets di Streamlit
         creds_dict = json.loads(st.secrets["GCP_CREDENTIALS"])
+        
+        # 🛠️ LA RIGA MAGICA: Ripara i rientri a capo della chiave privata
+        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+        
         scopes = [
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive"
@@ -43,9 +47,12 @@ def get_worksheet():
 def carica_preferiti_da_sheets():
     sheet = get_worksheet()
     if sheet:
-        # Prende tutti i valori della colonna A (saltando l'intestazione "ASIN")
-        valori = sheet.col_values(1)[1:] 
-        return set(valori)
+        try:
+            # Prende tutti i valori della colonna A (saltando l'intestazione "ASIN")
+            valori = sheet.col_values(1)[1:] 
+            return set(valori)
+        except Exception:
+            return set()
     return set()
 
 def salva_preferito_su_sheets(asin):
@@ -56,12 +63,28 @@ def salva_preferito_su_sheets(asin):
 def rimuovi_preferito_da_sheets(asin):
     sheet = get_worksheet()
     if sheet:
-        # Trova la cella con l'ASIN e ne elimina la riga
         try:
+            # Trova la cella con l'ASIN e ne elimina la riga
             cella = sheet.find(asin)
-            sheet.delete_rows(cella.row)
+            if cella:
+                sheet.delete_rows(cella.row)
         except Exception:
             pass # L'ASIN non era presente
+
+def svuota_salvati():
+    st.session_state.libri_salvati.clear()
+    sheet = get_worksheet()
+    if sheet:
+        try:
+            sheet.clear() # Cancella tutto
+            try:
+                # Nuova sintassi gspread per ricreare l'intestazione
+                sheet.update(range_name='A1', values=[['ASIN']])
+            except:
+                # Vecchia sintassi gspread per ricreare l'intestazione
+                sheet.update('A1', [['ASIN']])
+        except Exception as e:
+            st.error(f"Errore durante lo svuotamento del foglio: {e}")
 
 # --- INIZIALIZZAZIONE MEMORIA ---
 if 'libri_salvati' not in st.session_state:
@@ -116,6 +139,9 @@ else:
     st.sidebar.markdown("---")
     st.sidebar.metric(label="❤️ Wishlist", value=f"{len(st.session_state.libri_salvati)} libri")
     mostra_solo_salvati = st.sidebar.checkbox("Visualizza solo la tua Wishlist")
+    
+    if len(st.session_state.libri_salvati) > 0:
+        st.sidebar.button("🗑️ Svuota Wishlist", on_click=svuota_salvati, type="secondary")
 
     # ==========================================
     # ELABORAZIONE DATI (FILTRI)
