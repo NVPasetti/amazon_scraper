@@ -113,8 +113,8 @@ def load_amazon_data(file_name):
         return None
 
 # --- INTESTAZIONE SHOP ---
-st.title("🛍️ Amazon Radar - Libreria")
-st.caption("Esplora le classifiche e aggiungi i titoli alla tua Wishlist.")
+st.title("I più venduti - Amazon")
+st.caption("Esplora i libri con più recensioni e aggiungili ai preferiti per rivederli in un secondo momento")
 
 file_amazon = "amazon_libri_multicat.csv"
 df_amz = load_amazon_data(file_amazon)
@@ -125,7 +125,7 @@ else:
     # ==========================================
     # SIDEBAR: FILTRI E WISHLIST
     # ==========================================
-    st.sidebar.header("🔍 Naviga nello Shop")
+    st.sidebar.header("Menu")
     
     categorie_disponibili = ["Tutte"] + sorted(df_amz['Categoria'].unique().tolist())
     sel_cat_amz = st.sidebar.selectbox("Reparto:", categorie_disponibili)
@@ -200,4 +200,4 @@ else:
                         st.caption(f"Reparto: {row_data.get('Categoria', 'N/D')}")
                         
                         amz_link = f"https://www.amazon.it/dp/{asin}" if pd.notna(asin) else "#"
-                        st.link_button("🛒 Vedi su Amazon", amz_link, type="primary", use_container_width=True)
+                        st.link_button("Vedi su Amazon", amz_link, type="primary", use_container_width=True)
