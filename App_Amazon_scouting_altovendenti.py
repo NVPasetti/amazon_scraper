@@ -1,13 +1,80 @@
 import streamlit as st
 import pandas as pd
 import os
+import json
+import gspread
+from google.oauth2.service_account import Credentials
 
 # --- CONFIGURAZIONE PAGINA ---
-st.set_page_config(page_title="Amazon Radar", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Amazon Radar Shop", page_icon="🛍️", layout="wide")
 
-# --- INIZIALIZZAZIONE MEMORIA (SESSION STATE) ---
+NOME_FOGLIO_GOOGLE = "Amazon_Wishlist" # <-- INSERISCI QUI IL NOME ESATTO DEL TUO FOGLIO GOOGLE
+
+# --- CONNESSIONE A GOOGLE SHEETS ---
+@st.cache_resource
+def get_gspread_client():
+    """Autentica e restituisce il client Google Sheets usando i Secrets."""
+    try:
+        # Legge il JSON dai Secrets di Streamlit
+        creds_dict = json.loads(st.secrets["GCP_CREDENTIALS"])
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        client = gspread.authorize(creds)
+        return client
+    except Exception as e:
+        st.error(f"Errore di connessione a Google Sheets: {e}")
+        return None
+
+def get_worksheet():
+    client = get_gspread_client()
+    if client:
+        try:
+            # Apre il foglio e seleziona la prima scheda
+            sheet = client.open(NOME_FOGLIO_GOOGLE).sheet1
+            return sheet
+        except Exception as e:
+            st.error(f"Foglio '{NOME_FOGLIO_GOOGLE}' non trovato. L'hai condiviso con l'email del bot?")
+    return None
+
+# --- FUNZIONI PER GESTIRE I PREFERITI SU GOOGLE SHEETS ---
+def carica_preferiti_da_sheets():
+    sheet = get_worksheet()
+    if sheet:
+        # Prende tutti i valori della colonna A (saltando l'intestazione "ASIN")
+        valori = sheet.col_values(1)[1:] 
+        return set(valori)
+    return set()
+
+def salva_preferito_su_sheets(asin):
+    sheet = get_worksheet()
+    if sheet:
+        sheet.append_row([asin])
+
+def rimuovi_preferito_da_sheets(asin):
+    sheet = get_worksheet()
+    if sheet:
+        # Trova la cella con l'ASIN e ne elimina la riga
+        try:
+            cella = sheet.find(asin)
+            sheet.delete_rows(cella.row)
+        except Exception:
+            pass # L'ASIN non era presente
+
+# --- INIZIALIZZAZIONE MEMORIA ---
 if 'libri_salvati' not in st.session_state:
-    st.session_state.libri_salvati = set()
+    st.session_state.libri_salvati = carica_preferiti_da_sheets()
+
+# Funzione callback per il pulsante "Cuore"
+def toggle_salvataggio(asin):
+    if asin in st.session_state.libri_salvati:
+        st.session_state.libri_salvati.remove(asin)
+        rimuovi_preferito_da_sheets(asin) # Rimuove da Google
+    else:
+        st.session_state.libri_salvati.add(asin)
+        salva_preferito_su_sheets(asin) # Aggiunge a Google
 
 # --- FUNZIONE DI CARICAMENTO DATI ---
 @st.cache_data(ttl=3600)
@@ -19,19 +86,12 @@ def load_amazon_data(file_name):
         df['Titolo'] = df['Titolo'].fillna("Senza Titolo")
         df['Autore'] = df['Autore'].fillna("N/D")
         return df
-    except Exception as e:
+    except Exception:
         return None
 
-# Funzione callback per il pulsante "Cuore"
-def toggle_salvataggio(asin):
-    if asin in st.session_state.libri_salvati:
-        st.session_state.libri_salvati.remove(asin)
-    else:
-        st.session_state.libri_salvati.add(asin)
-
-# --- INTESTAZIONE ---
-st.title("📈 Bestseller Amazon")
-st.caption("Esplora i libri più recensiti e salva quelli più interessanti.")
+# --- INTESTAZIONE SHOP ---
+st.title("🛍️ Amazon Radar - Libreria")
+st.caption("Esplora le classifiche e aggiungi i titoli alla tua Wishlist.")
 
 file_amazon = "amazon_libri_multicat.csv"
 df_amz = load_amazon_data(file_amazon)
@@ -40,28 +100,22 @@ if df_amz is None:
     st.warning("⚠️ Dati Amazon non ancora disponibili. Attendi che lo scraper generi il file CSV.")
 else:
     # ==========================================
-    # SIDEBAR: FILTRI E SALVATI
+    # SIDEBAR: FILTRI E WISHLIST
     # ==========================================
-    st.sidebar.header("🛠️ Filtri Amazon")
+    st.sidebar.header("🔍 Naviga nello Shop")
     
     categorie_disponibili = ["Tutte"] + sorted(df_amz['Categoria'].unique().tolist())
-    sel_cat_amz = st.sidebar.selectbox("Filtra per Categoria:", categorie_disponibili)
+    sel_cat_amz = st.sidebar.selectbox("Reparto:", categorie_disponibili)
     
     max_recensioni = int(df_amz['Recensioni'].max()) if not df_amz.empty else 1000
     min_recensioni_filtro = st.sidebar.slider(
-        "Minimo Recensioni:", 
+        "Filtra per popolarità (min. recensioni):", 
         min_value=0, max_value=max_recensioni, value=60, step=50
     )
 
     st.sidebar.markdown("---")
-    st.sidebar.header("💾 I tuoi salvataggi")
-    
-    mostra_solo_salvati = st.sidebar.checkbox(f"Mostra solo i salvati ({len(st.session_state.libri_salvati)})")
-    
-    if len(st.session_state.libri_salvati) > 0:
-        if st.sidebar.button("🗑️ Svuota lista salvati"):
-            st.session_state.libri_salvati.clear()
-            st.rerun()
+    st.sidebar.metric(label="❤️ Wishlist", value=f"{len(st.session_state.libri_salvati)} libri")
+    mostra_solo_salvati = st.sidebar.checkbox("Visualizza solo la tua Wishlist")
 
     # ==========================================
     # ELABORAZIONE DATI (FILTRI)
@@ -77,19 +131,17 @@ else:
         
     df_filtrato = df_filtrato.sort_values(by='Recensioni', ascending=False)
 
-    st.info(f"Mostrando **{len(df_filtrato)}** libri.")
+    st.markdown(f"**{len(df_filtrato)}** risultati trovati")
+    st.markdown("---")
 
     # ==========================================
-    # RENDERING A GRIGLIA ALLINEATA (3 COLONNE)
+    # RENDERING A GRIGLIA ALLINEATA (SHOP STYLE)
     # ==========================================
-    # Convertiamo il dataframe in una lista per iterarlo a blocchi di 3
     lista_libri = list(df_filtrato.iterrows())
     
-    # Creiamo una nuova riga (row) ogni 3 libri, così le card sono sempre allineate in alto
     for i in range(0, len(lista_libri), 3):
         cols = st.columns(3)
         
-        # Riempiamo le 3 colonne della riga corrente
         for j in range(3):
             if i + j < len(lista_libri):
                 index, row_data = lista_libri[i + j]
@@ -98,38 +150,28 @@ else:
                 
                 with cols[j]:
                     with st.container(border=True):
-                        
-                        # Sotto-colonne per mettere il cuore in alto a destra rispetto al titolo
                         c_titolo, c_cuore = st.columns([5, 1])
-                        
                         with c_cuore:
                             st.button(
                                 "❤️" if is_saved else "🤍", 
                                 key=f"btn_{asin}", 
                                 on_click=toggle_salvataggio, 
                                 args=(asin,),
-                                help="Salva/Rimuovi dalla tua lista"
+                                help="Aggiungi o rimuovi dalla Wishlist"
                             )
-                            
                         with c_titolo:
-                            # Titolo più piccolo (solo grassetto anziché subheader) e separatore
-                            st.markdown(f"**{row_data['Titolo']}**")
+                            titolo_corto = row_data['Titolo'][:60] + "..." if len(row_data['Titolo']) > 60 else row_data['Titolo']
+                            st.markdown(f"**{titolo_corto}**")
                         
-                        st.markdown("---")
-                        
-                        # Copertina
                         url = row_data['Copertina']
                         if pd.notna(url) and str(url).startswith('http'):
-                            st.image(str(url), width=120)
+                            st.image(str(url), use_container_width=True)
                         else:
-                            st.markdown("🖼️ *No Img*")
+                            st.markdown("🖼️ *Nessuna Immagine*")
                         
-                        # Info Libro senza l'emoji della mano
-                        st.markdown(f"**{row_data.get('Autore', 'N/D')}**")
-                        st.markdown(f"📊 **{int(row_data['Recensioni'])}** recensioni")
-                        st.caption(f"🏷️ {row_data.get('Categoria', 'N/D')} | 📅 {row_data.get('Data', 'N/D')}")
+                        st.caption(f"Di: **{row_data.get('Autore', 'N/D')}**")
+                        st.markdown(f"⭐⭐⭐⭐⭐ ({int(row_data['Recensioni'])})")
+                        st.caption(f"Reparto: {row_data.get('Categoria', 'N/D')}")
                         
-                        # Link
                         amz_link = f"https://www.amazon.it/dp/{asin}" if pd.notna(asin) else "#"
-                        st.markdown(f"[🛒 Apri su Amazon]({amz_link})")
-                        
+                        st.link_button("🛒 Vedi su Amazon", amz_link, type="primary", use_container_width=True)
