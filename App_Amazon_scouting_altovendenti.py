@@ -6,30 +6,23 @@ from supabase import create_client, Client
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Scouting Amazon", layout="wide")
 
-# --- FIX SCROLL VERSO L'ALTO (POTENZIATO) ---
+# --- FIX SCROLL VERSO L'ALTO (HACK SENZA IFRAME) ---
 if 'scroll_to_top' not in st.session_state:
     st.session_state.scroll_to_top = False
 
 if st.session_state.scroll_to_top:
-    # Script che aggira i blocchi iframe e prova tutti i contenitori di Streamlit
-    js_scroll = """
-    <script>
-        try {
-            // 1. Prova a scrollare la finestra genitore
-            window.parent.scrollTo({top: 0, behavior: 'smooth'});
-            
-            // 2. Prova a scrollare tutti i possibili contenitori interni di Streamlit
-            const elements = window.parent.document.querySelectorAll('.main, [data-testid="stAppViewContainer"], [data-testid="stMainBlockContainer"]');
-            for (let el of elements) {
-                el.scrollTo({top: 0, behavior: 'smooth'});
-                el.scrollTop = 0;
-            }
-        } catch (e) {
-            console.log("Scroll bloccato dalle policy del browser.");
+    # Trucco dell'immagine finta per lanciare JS aggirando i blocchi di sicurezza
+    scroll_script = """
+    <img src="dummy_image" style="display:none;" onerror="
+        let main = document.querySelector('.main');
+        if (main) {
+            main.scrollTo({top: 0, behavior: 'smooth'});
+            main.scrollTop = 0;
         }
-    </script>
+        window.scrollTo({top: 0, behavior: 'smooth'});
+    ">
     """
-    st.components.v1.html(js_scroll, height=0)
+    st.markdown(scroll_script, unsafe_allow_html=True)
     st.session_state.scroll_to_top = False
 
 # --- CONNESSIONE A SUPABASE ---
@@ -229,25 +222,4 @@ else:
                         st.link_button("Vedi su Amazon", amz_link, type="primary", use_container_width=True)
 
     # ==========================================
-    # PULSANTI DI NAVIGAZIONE PAGINA IN FONDO
-    # ==========================================
-    if totale_pagine > 1:
-        st.markdown("---")
-        col_prev, col_info, col_next = st.columns([1, 2, 1])
-        
-        with col_prev:
-            if st.session_state.pagina_corrente > 0:
-                if st.button("⬅️ Pagina Precedente", use_container_width=True):
-                    st.session_state.pagina_corrente -= 1
-                    st.session_state.scroll_to_top = True
-                    st.rerun()
-                    
-        with col_info:
-            st.markdown(f"<div style='text-align: center;'>Pagina <b>{st.session_state.pagina_corrente + 1}</b> di <b>{totale_pagine}</b></div>", unsafe_allow_html=True)
-            
-        with col_next:
-            if st.session_state.pagina_corrente < totale_pagine - 1:
-                if st.button("Pagina Successiva ➡️", use_container_width=True):
-                    st.session_state.pagina_corrente += 1
-                    st.session_state.scroll_to_top = True
-                    st.rerun()
+    # PUL
