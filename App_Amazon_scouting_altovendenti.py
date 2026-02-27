@@ -6,6 +6,23 @@ from supabase import create_client, Client
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Scouting Amazon", layout="wide")
 
+# --- FIX SCROLL VERSO L'ALTO ---
+if 'scroll_to_top' not in st.session_state:
+    st.session_state.scroll_to_top = False
+
+if st.session_state.scroll_to_top:
+    # Inietta un piccolo script invisibile per scrollare in cima
+    js_scroll = """
+    <script>
+        var body = window.parent.document.querySelector(".main");
+        if (body) {
+            body.scrollTop = 0;
+        }
+    </script>
+    """
+    st.components.v1.html(js_scroll, height=0)
+    st.session_state.scroll_to_top = False
+
 # --- CONNESSIONE A SUPABASE ---
 @st.cache_resource
 def init_supabase() -> Client:
@@ -139,7 +156,7 @@ else:
     # ==========================================
     # SISTEMA DI PAGINAZIONE
     # ==========================================
-    LIBRI_PER_PAGINA = 150
+    LIBRI_PER_PAGINA = 30
     
     if 'pagina_corrente' not in st.session_state:
         st.session_state.pagina_corrente = 0
@@ -213,6 +230,7 @@ else:
             if st.session_state.pagina_corrente > 0:
                 if st.button("⬅️ Pagina Precedente", use_container_width=True):
                     st.session_state.pagina_corrente -= 1
+                    st.session_state.scroll_to_top = True  # <--- ATTIVA LO SCROLL
                     st.rerun()
                     
         with col_info:
@@ -222,4 +240,5 @@ else:
             if st.session_state.pagina_corrente < totale_pagine - 1:
                 if st.button("Pagina Successiva ➡️", use_container_width=True):
                     st.session_state.pagina_corrente += 1
+                    st.session_state.scroll_to_top = True  # <--- ATTIVA LO SCROLL
                     st.rerun()
