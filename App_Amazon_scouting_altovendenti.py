@@ -222,4 +222,25 @@ else:
                         st.link_button("Vedi su Amazon", amz_link, type="primary", use_container_width=True)
 
     # ==========================================
-    # PUL
+    # PULSANTI DI NAVIGAZIONE PAGINA IN FONDO
+    # ==========================================
+    if totale_pagine > 1:
+        st.markdown("---")
+        col_prev, col_info, col_next = st.columns([1, 2, 1])
+        
+        with col_prev:
+            if st.session_state.pagina_corrente > 0:
+                if st.button("⬅️ Pagina Precedente", use_container_width=True):
+                    st.session_state.pagina_corrente -= 1
+                    st.session_state.scroll_to_top = True
+                    st.rerun()
+                    
+        with col_info:
+            st.markdown(f"<div style='text-align: center;'>Pagina <b>{st.session_state.pagina_corrente + 1}</b> di <b>{totale_pagine}</b></div>", unsafe_allow_html=True)
+            
+        with col_next:
+            if st.session_state.pagina_corrente < totale_pagine - 1:
+                if st.button("Pagina Successiva ➡️", use_container_width=True):
+                    st.session_state.pagina_corrente += 1
+                    st.session_state.scroll_to_top = True
+                    st.rerun()
