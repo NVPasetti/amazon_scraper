@@ -3,39 +3,36 @@ import pandas as pd
 import os
 import json
 import textwrap
-import re          
+import re
 import gspread
 from google.oauth2.service_account import Credentials
 
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Scouting Amazon", layout="wide")
 
-NOME_FOGLIO_GOOGLE = "Amazon_Wishlist" # <-- ASSICURATI CHE IL NOME SIA CORRETTO
+NOME_FOGLIO_GOOGLE = "Amazon_Wishlist" # <-- ASSICURATI CHE IL NOME SIA CORRETTO SUL TUO DRIVE
 
 # --- CONNESSIONE A GOOGLE SHEETS ---
 @st.cache_resource
 def get_gspread_client():
+    """Autentica e restituisce il client Google Sheets usando i Secrets."""
     try:
+        # Legge il JSON dai Secrets di Streamlit
         creds_dict = json.loads(st.secrets["GCP_CREDENTIALS"])
+        
         raw_key = creds_dict.get("private_key", "")
         
         # --- SOLUZIONE NUCLEARE REGEX ---
-        # Trova le intestazioni e il corpo centrale, ignorando tutti i problemi di testo
         match = re.search(r'(-----BEGIN.*?KEY-----)(.*?)(-----END.*?KEY-----)', raw_key, flags=re.DOTALL)
         
         if match:
             header, core_key, footer = match.groups()
-            
-            # Rimuove TUTTI gli spazi bianchi, a capo invisibili o difettosi
+            # Rimuove tutti gli spazi, a capo o difetti
             core_key = re.sub(r'\s+', '', core_key)
-            
-            # Divide tutto in righe perfette da 64 caratteri (lo standard assoluto)
+            # Riformatta in blocchi da 64 caratteri
             righe_pulite = "\n".join(textwrap.wrap(core_key, 64))
-            
-            # Ricompone il puzzle alla perfezione
             creds_dict["private_key"] = f"{header}\n{righe_pulite}\n{footer}\n"
         else:
-            # Piano B se per qualche motivo non trova le intestazioni
             creds_dict["private_key"] = raw_key.replace("\\n", "\n")
             
         scopes = [
@@ -49,6 +46,17 @@ def get_gspread_client():
     except Exception as e:
         st.error(f"Errore di connessione a Google Sheets: {e}")
         return None
+
+def get_worksheet():
+    client = get_gspread_client()
+    if client:
+        try:
+            # Apre il foglio e seleziona la prima scheda
+            sheet = client.open(NOME_FOGLIO_GOOGLE).sheet1
+            return sheet
+        except Exception as e:
+            st.error(f"Foglio '{NOME_FOGLIO_GOOGLE}' non trovato. L'hai condiviso con l'email del bot?")
+    return None
 
 # --- FUNZIONI PER GESTIRE I PREFERITI SU GOOGLE SHEETS ---
 def carica_preferiti_da_sheets():
@@ -85,10 +93,8 @@ def svuota_salvati():
         try:
             sheet.clear() # Cancella tutto
             try:
-                # Nuova sintassi gspread per ricreare l'intestazione
                 sheet.update(range_name='A1', values=[['ASIN']])
             except:
-                # Vecchia sintassi gspread per ricreare l'intestazione
                 sheet.update('A1', [['ASIN']])
         except Exception as e:
             st.error(f"Errore durante lo svuotamento del foglio: {e}")
@@ -160,7 +166,6 @@ else:
     df_filtrato = df_amz.copy()
     
     if mostra_solo_salvati:
-        # Controllo che libri_salvati sia effettivamente un set prima di usarlo nei filtri
         salvati_set = st.session_state.libri_salvati if isinstance(st.session_state.libri_salvati, set) else set()
         df_filtrato = df_filtrato[df_filtrato['ASIN'].isin(salvati_set)]
     else:
