@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import json
 import textwrap
+import re          
 import gspread
 from google.oauth2.service_account import Credentials
 
@@ -15,22 +16,27 @@ NOME_FOGLIO_GOOGLE = "Amazon_Wishlist" # <-- ASSICURATI CHE IL NOME SIA CORRETTO
 @st.cache_resource
 def get_gspread_client():
     try:
-        # Legge il JSON dai Secrets di Streamlit
         creds_dict = json.loads(st.secrets["GCP_CREDENTIALS"])
-        
-        # --- SUPER FIX PER LA CHIAVE PRIVATA ---
         raw_key = creds_dict.get("private_key", "")
-        raw_key = raw_key.replace("\\n", "\n").strip()
         
-        header = "-----BEGIN PRIVATE KEY-----"
-        footer = "-----END PRIVATE KEY-----"
+        # --- SOLUZIONE NUCLEARE REGEX ---
+        # Trova le intestazioni e il corpo centrale, ignorando tutti i problemi di testo
+        match = re.search(r'(-----BEGIN.*?KEY-----)(.*?)(-----END.*?KEY-----)', raw_key, flags=re.DOTALL)
         
-        if header in raw_key and footer in raw_key:
-            core_key = raw_key.split(header)[1].split(footer)[0]
-            core_key = core_key.replace(" ", "").replace("\n", "").replace("\r", "").replace("\t", "")
+        if match:
+            header, core_key, footer = match.groups()
+            
+            # Rimuove TUTTI gli spazi bianchi, a capo invisibili o difettosi
+            core_key = re.sub(r'\s+', '', core_key)
+            
+            # Divide tutto in righe perfette da 64 caratteri (lo standard assoluto)
             righe_pulite = "\n".join(textwrap.wrap(core_key, 64))
-            chiave_perfetta = f"{header}\n{righe_pulite}\n{footer}\n"
-            creds_dict["private_key"] = chiave_perfetta
+            
+            # Ricompone il puzzle alla perfezione
+            creds_dict["private_key"] = f"{header}\n{righe_pulite}\n{footer}\n"
+        else:
+            # Piano B se per qualche motivo non trova le intestazioni
+            creds_dict["private_key"] = raw_key.replace("\\n", "\n")
             
         scopes = [
             "https://www.googleapis.com/auth/spreadsheets",
@@ -43,17 +49,6 @@ def get_gspread_client():
     except Exception as e:
         st.error(f"Errore di connessione a Google Sheets: {e}")
         return None
-
-def get_worksheet():
-    client = get_gspread_client()
-    if client:
-        try:
-            # Apre il foglio e seleziona la prima scheda
-            sheet = client.open(NOME_FOGLIO_GOOGLE).sheet1
-            return sheet
-        except Exception as e:
-            st.error(f"Foglio '{NOME_FOGLIO_GOOGLE}' non trovato. L'hai condiviso con l'email del bot?")
-    return None
 
 # --- FUNZIONI PER GESTIRE I PREFERITI SU GOOGLE SHEETS ---
 def carica_preferiti_da_sheets():
