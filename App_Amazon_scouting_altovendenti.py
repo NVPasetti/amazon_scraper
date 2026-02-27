@@ -212,4 +212,8 @@ else:
     if st.session_state.limite_libri < totale_libri:
         st.markdown("---")
         # Centriamo il pulsante usando le colonne
-        col_vuota1, col_bottone, col_vuota2 =
+        col_vuota1, col_bottone, col_vuota2 = st.columns([1, 2, 1])
+        with col_bottone:
+            if st.button("⬇️ Carica altri libri", use_container_width=True):
+                st.session_state.limite_libri += 150
+                st.rerun()
