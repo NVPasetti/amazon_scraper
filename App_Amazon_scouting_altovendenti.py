@@ -199,16 +199,16 @@ else:
                             """
                             st.markdown(titolo_html, unsafe_allow_html=True)
                         
-                        # 2. IMMAGINE GIGANTE MA CONTENUTA (350px di altezza fissa)
+                        # 2. IMMAGINE GIGANTE MA CONTENUTA (450px di altezza fissa)
                         url = row_data['Copertina']
                         if pd.notna(url) and str(url).startswith('http'):
                             img_html = f"""
-                            <div style='height: 350px; display: flex; justify-content: center; align-items: center; margin-bottom: 15px;'>
-                                <img src='{url}' style='max-height: 100%; max-width: 100%; object-fit: contain;'>
+                            <div style='height: 450px; display: flex; justify-content: center; align-items: center; margin-bottom: 15px;'>
+                                <img src='{url}' style='width: 100%; height: 100%; object-fit: contain;'>
                             </div>
                             """
                         else:
-                            img_html = f"<div style='height: 350px; display: flex; justify-content: center; align-items: center; margin-bottom: 15px; background-color: #f8f9fa; border-radius: 5px;'>🖼️ <i>Nessuna Immagine</i></div>"
+                            img_html = f"<div style='height: 450px; display: flex; justify-content: center; align-items: center; margin-bottom: 15px; background-color: #f8f9fa; border-radius: 5px;'>🖼️ <i>Nessuna Immagine</i></div>"
                         
                         st.markdown(img_html, unsafe_allow_html=True)
                         
