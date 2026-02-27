@@ -160,11 +160,11 @@ else:
     st.markdown(f"**{totale_libri}** risultati trovati")
     st.markdown("---")
 
-    # Tagliamo il dataframe per mostrare solo i libri fino al limite attuale (es. 150, 300, 450...)
+    # Tagliamo il dataframe per mostrare solo i libri fino al limite attuale
     df_mostrato = df_filtrato.iloc[:st.session_state.limite_libri]
 
     # ==========================================
-    # RENDERING A GRIGLIA ALLINEATA (ALTEZZA FISSA)
+    # RENDERING A GRIGLIA ALLINEATA
     # ==========================================
     lista_libri = list(df_mostrato.iterrows())
     
@@ -180,7 +180,7 @@ else:
                 
                 with cols[j]:
                     with st.container(border=True):
-                        # 1. RIGA TITOLO E CUORE (Altezza fissa)
+                        # 1. RIGA TITOLO E CUORE
                         c_titolo, c_cuore = st.columns([5, 1])
                         with c_cuore:
                             st.button(
@@ -191,29 +191,25 @@ else:
                                 help="Aggiungi o rimuovi dai Salvati"
                             )
                         with c_titolo:
-                            # Titolo bloccato a 2 righe massime (55px di altezza)
-                            titolo_html = f"""
-                            <div style='height: 55px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-weight: bold; font-size: 1.1em;'>
-                                {row_data['Titolo']}
-                            </div>
-                            """
-                            st.markdown(titolo_html, unsafe_allow_html=True)
+                            # Troncamento feroce a 45 caratteri per il titolo
+                            titolo_intero = row_data['Titolo']
+                            titolo_corto = titolo_intero[:45] + "..." if len(titolo_intero) > 45 else titolo_intero
+                            
+                            # Forziamo l'altezza del box del titolo a 55px in modo che 1 o 2 righe occupino lo stesso spazio
+                            st.markdown(f"<div style='height: 55px; font-weight: bold; font-size: 1.05em;'>{titolo_corto}</div>", unsafe_allow_html=True)
                         
-                        # 2. IMMAGINE (Altezza fissa a 250px)
+                        # 2. IMMAGINE GIGANTE (Nativa Streamlit)
                         url = row_data['Copertina']
                         if pd.notna(url) and str(url).startswith('http'):
-                            img_html = f"""
-                            <div style='height: 250px; display: flex; justify-content: center; align-items: center; margin-bottom: 15px;'>
-                                <img src='{url}' style='max-height: 100%; max-width: 100%; object-fit: contain; border-radius: 4px;'>
-                            </div>
-                            """
+                            st.image(str(url), use_container_width=True)
                         else:
-                            img_html = f"<div style='height: 250px; display: flex; justify-content: center; align-items: center; margin-bottom: 15px;'>🖼️ <i>Nessuna Immagine</i></div>"
-                        
-                        st.markdown(img_html, unsafe_allow_html=True)
+                            st.markdown("<div style='height: 250px; text-align: center; line-height: 250px;'>🖼️ <i>Nessuna Immagine</i></div>", unsafe_allow_html=True)
                         
                         # 3. INFO E METADATI (Altezza fissa a 80px)
-                        autore_corto = row_data.get('Autore', 'N/D')[:35] + "..." if len(row_data.get('Autore', 'N/D')) > 35 else row_data.get('Autore', 'N/D')
+                        # Troncamento feroce a 35 caratteri per l'autore
+                        autore_intero = row_data.get('Autore', 'N/D')
+                        autore_corto = autore_intero[:35] + "..." if len(autore_intero) > 35 else autore_intero
+                        
                         info_html = f"""
                         <div style='height: 80px; line-height: 1.4;'>
                             <span style='font-size: 0.85em; color: gray;'>Di: <b>{autore_corto}</b></span><br>
