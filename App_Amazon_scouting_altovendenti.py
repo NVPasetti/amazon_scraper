@@ -139,7 +139,7 @@ else:
     # ==========================================
     # SISTEMA DI PAGINAZIONE
     # ==========================================
-    LIBRI_PER_PAGINA = 30
+    LIBRI_PER_PAGINA = 150
     
     if 'pagina_corrente' not in st.session_state:
         st.session_state.pagina_corrente = 0
