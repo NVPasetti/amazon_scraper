@@ -23,7 +23,7 @@ except Exception as e:
 def carica_preferiti_db():
     if supabase:
         try:
-            # Scarica tutta la colonna 'asin'
+            # Scarica tutta la colonna 'asin' dalla tabella 'wishlist'
             risposta = supabase.table("wishlist").select("asin").execute()
             return set(r["asin"] for r in risposta.data)
         except Exception:
@@ -81,7 +81,7 @@ def load_amazon_data(file_name):
 
 # --- INTESTAZIONE SHOP ---
 st.title("I più venduti - Amazon")
-st.caption("Esplora i libri con più recensioni e aggiungili alla Wishlist globale.")
+st.caption("Esplora i libri con più recensioni e aggiungili ai Salvati.")
 
 file_amazon = "amazon_libri_multicat.csv"
 df_amz = load_amazon_data(file_amazon)
@@ -90,7 +90,7 @@ if df_amz is None:
     st.warning("⚠️ Dati Amazon non ancora disponibili. Attendi che lo scraper generi il file CSV.")
 else:
     # ==========================================
-    # SIDEBAR: FILTRI E WISHLIST
+    # SIDEBAR: FILTRI E SALVATI
     # ==========================================
     st.sidebar.header("Menu")
     
@@ -105,13 +105,14 @@ else:
 
     st.sidebar.markdown("---")
     
+    # Sicurezza per evitare che un riavvio lento rompa il conteggio
     num_salvati = len(st.session_state.libri_salvati) if isinstance(st.session_state.libri_salvati, set) else 0
-    st.sidebar.metric(label="❤️ Wishlist Globale", value=f"{num_salvati} libri")
+    st.sidebar.metric(label="❤️ Salvati", value=f"{num_salvati} libri")
     
-    mostra_solo_salvati = st.sidebar.checkbox("Visualizza solo la Wishlist")
+    mostra_solo_salvati = st.sidebar.checkbox("Visualizza solo i Salvati")
     
     if num_salvati > 0:
-        st.sidebar.button("🗑️ Svuota Wishlist", on_click=svuota_salvati_db, type="secondary")
+        st.sidebar.button("🗑️ Svuota Salvati", on_click=svuota_salvati_db, type="secondary")
 
     # ==========================================
     # ELABORAZIONE DATI (FILTRI)
@@ -128,13 +129,33 @@ else:
         
     df_filtrato = df_filtrato.sort_values(by='Recensioni', ascending=False)
 
-    st.markdown(f"**{len(df_filtrato)}** risultati trovati")
+    # ==========================================
+    # SISTEMA DI PAGINAZIONE
+    # ==========================================
+    LIBRI_PER_PAGINA = 30
+    
+    if 'pagina_corrente' not in st.session_state:
+        st.session_state.pagina_corrente = 0
+
+    totale_libri = len(df_filtrato)
+    totale_pagine = (totale_libri // LIBRI_PER_PAGINA) + (1 if totale_libri % LIBRI_PER_PAGINA > 0 else 0)
+
+    # Se i filtri cambiano e la pagina salvata sfora il nuovo limite, resettiamo a 0
+    if st.session_state.pagina_corrente >= totale_pagine and totale_pagine > 0:
+        st.session_state.pagina_corrente = 0
+
+    st.markdown(f"**{totale_libri}** risultati trovati")
     st.markdown("---")
+
+    # Tagliamo il dataframe per mostrare solo i libri di questa pagina
+    inizio_idx = st.session_state.pagina_corrente * LIBRI_PER_PAGINA
+    fine_idx = inizio_idx + LIBRI_PER_PAGINA
+    df_pagina = df_filtrato.iloc[inizio_idx:fine_idx]
 
     # ==========================================
     # RENDERING A GRIGLIA ALLINEATA
     # ==========================================
-    lista_libri = list(df_filtrato.iterrows())
+    lista_libri = list(df_pagina.iterrows())
     
     for i in range(0, len(lista_libri), 3):
         cols = st.columns(3)
@@ -155,7 +176,7 @@ else:
                                 key=f"btn_{asin}", 
                                 on_click=toggle_salvataggio, 
                                 args=(asin,),
-                                help="Aggiungi o rimuovi dalla Wishlist Globale"
+                                help="Aggiungi o rimuovi dai Salvati"
                             )
                         with c_titolo:
                             titolo_corto = row_data['Titolo'][:60] + "..." if len(row_data['Titolo']) > 60 else row_data['Titolo']
@@ -173,3 +194,25 @@ else:
                         
                         amz_link = f"https://www.amazon.it/dp/{asin}" if pd.notna(asin) else "#"
                         st.link_button("Vedi su Amazon", amz_link, type="primary", use_container_width=True)
+
+    # ==========================================
+    # PULSANTI DI NAVIGAZIONE PAGINA IN FONDO
+    # ==========================================
+    if totale_pagine > 1:
+        st.markdown("---")
+        col_prev, col_info, col_next = st.columns([1, 2, 1])
+        
+        with col_prev:
+            if st.session_state.pagina_corrente > 0:
+                if st.button("⬅️ Pagina Precedente", use_container_width=True):
+                    st.session_state.pagina_corrente -= 1
+                    st.rerun()
+                    
+        with col_info:
+            st.markdown(f"<div style='text-align: center;'>Pagina <b>{st.session_state.pagina_corrente + 1}</b> di <b>{totale_pagine}</b></div>", unsafe_allow_html=True)
+            
+        with col_next:
+            if st.session_state.pagina_corrente < totale_pagine - 1:
+                if st.button("Pagina Successiva ➡️", use_container_width=True):
+                    st.session_state.pagina_corrente += 1
+                    st.rerun()
