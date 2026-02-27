@@ -191,23 +191,29 @@ else:
                                 help="Aggiungi o rimuovi dai Salvati"
                             )
                         with c_titolo:
-                            # Troncamento feroce a 45 caratteri per il titolo
-                            titolo_intero = row_data['Titolo']
-                            titolo_corto = titolo_intero[:45] + "..." if len(titolo_intero) > 45 else titolo_intero
-                            
-                            # Forziamo l'altezza del box del titolo a 55px in modo che 1 o 2 righe occupino lo stesso spazio
-                            st.markdown(f"<div style='height: 55px; font-weight: bold; font-size: 1.05em;'>{titolo_corto}</div>", unsafe_allow_html=True)
+                            # Titolo fisso a 55px (massimo 2 righe, poi "...")
+                            titolo_html = f"""
+                            <div style='height: 55px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-weight: bold; font-size: 1.05em;'>
+                                {row_data['Titolo']}
+                            </div>
+                            """
+                            st.markdown(titolo_html, unsafe_allow_html=True)
                         
-                        # 2. IMMAGINE GIGANTE (Nativa Streamlit)
+                        # 2. IMMAGINE GIGANTE MA CONTENUTA (350px di altezza fissa)
                         url = row_data['Copertina']
                         if pd.notna(url) and str(url).startswith('http'):
-                            st.image(str(url), use_container_width=True)
+                            img_html = f"""
+                            <div style='height: 350px; display: flex; justify-content: center; align-items: center; margin-bottom: 15px;'>
+                                <img src='{url}' style='max-height: 100%; max-width: 100%; object-fit: contain;'>
+                            </div>
+                            """
                         else:
-                            st.markdown("<div style='height: 250px; text-align: center; line-height: 250px;'>🖼️ <i>Nessuna Immagine</i></div>", unsafe_allow_html=True)
+                            img_html = f"<div style='height: 350px; display: flex; justify-content: center; align-items: center; margin-bottom: 15px; background-color: #f8f9fa; border-radius: 5px;'>🖼️ <i>Nessuna Immagine</i></div>"
+                        
+                        st.markdown(img_html, unsafe_allow_html=True)
                         
                         # 3. INFO E METADATI (Altezza fissa a 80px)
-                        # Troncamento feroce a 35 caratteri per l'autore
-                        autore_intero = row_data.get('Autore', 'N/D')
+                        autore_intero = str(row_data.get('Autore', 'N/D'))
                         autore_corto = autore_intero[:35] + "..." if len(autore_intero) > 35 else autore_intero
                         
                         info_html = f"""
