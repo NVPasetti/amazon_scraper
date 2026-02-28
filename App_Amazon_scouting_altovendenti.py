@@ -59,9 +59,10 @@ if 'libri_salvati' not in st.session_state:
 if 'limite_libri' not in st.session_state:
     st.session_state.limite_libri = 150
 
-# Inizializza le memorie per i filtri (per resettare il limite se cambi reparto)
+# Inizializza le memorie per i filtri (per resettare il limite se cambi impostazioni)
 if 'filtro_cat' not in st.session_state: st.session_state.filtro_cat = "Tutte"
 if 'filtro_rec' not in st.session_state: st.session_state.filtro_rec = 60
+if 'filtro_ord' not in st.session_state: st.session_state.filtro_ord = "Decrescente (Più recensioni)"
 if 'filtro_salvati' not in st.session_state: st.session_state.filtro_salvati = False
 
 # Funzione callback per il pulsante "Cuore"
@@ -114,6 +115,13 @@ else:
         "Filtra per popolarità (min. recensioni):", 
         min_value=0, max_value=max_recensioni, value=60, step=50
     )
+    
+    # NUOVO FILTRO: ORDINAMENTO
+    ordinamento = st.sidebar.radio(
+        "Ordina per recensioni:",
+        options=["Decrescente (Più recensioni)", "Crescente (Meno recensioni)"]
+    )
+    is_ascending = True if ordinamento == "Crescente (Meno recensioni)" else False
 
     st.sidebar.markdown("---")
     
@@ -130,11 +138,13 @@ else:
     # ==========================================
     if (sel_cat_amz != st.session_state.filtro_cat or 
         min_recensioni_filtro != st.session_state.filtro_rec or 
+        ordinamento != st.session_state.filtro_ord or
         mostra_solo_salvati != st.session_state.filtro_salvati):
         
         st.session_state.limite_libri = 150
         st.session_state.filtro_cat = sel_cat_amz
         st.session_state.filtro_rec = min_recensioni_filtro
+        st.session_state.filtro_ord = ordinamento
         st.session_state.filtro_salvati = mostra_solo_salvati
 
     # ==========================================
@@ -150,7 +160,8 @@ else:
             df_filtrato = df_filtrato[df_filtrato['Categoria'] == sel_cat_amz]
         df_filtrato = df_filtrato[df_filtrato['Recensioni'] >= min_recensioni_filtro]
         
-    df_filtrato = df_filtrato.sort_values(by='Recensioni', ascending=False)
+    # APPLICAZIONE ORDINAMENTO SCELTO DALL'UTENTE
+    df_filtrato = df_filtrato.sort_values(by='Recensioni', ascending=is_ascending)
 
     totale_libri = len(df_filtrato)
     st.markdown(f"**{totale_libri}** risultati trovati")
@@ -176,7 +187,7 @@ else:
                 with cols[j]:
                     with st.container(border=True):
                         
-                        # 1. RIGA TITOLO E CUORE (Con allineamento verticale compensato)
+                        # 1. RIGA TITOLO E CUORE (Cuore senza riquadro con type="tertiary")
                         c_titolo, c_cuore = st.columns([5, 1])
                         with c_cuore:
                             st.button(
@@ -184,10 +195,10 @@ else:
                                 key=f"btn_{asin}", 
                                 on_click=toggle_salvataggio, 
                                 args=(asin,),
-                                help="Aggiungi o rimuovi dai Salvati"
+                                help="Aggiungi o rimuovi dai Salvati",
+                                type="tertiary"
                             )
                         with c_titolo:
-                            # Aggiunto padding-top: 4px per abbassare il testo in linea col pulsante
                             titolo_html = f"""
                             <div style='height: 55px; padding-top: 4px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-weight: bold; font-size: 1.05em; text-align: left;'>
                                 {row_data['Titolo']}
