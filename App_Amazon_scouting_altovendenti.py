@@ -19,14 +19,13 @@ except Exception as e:
     st.error(f"Errore di connessione a Supabase: {e}")
     supabase = None
 
-# --- FUNZIONI DATABASE CON AVVISI DI ERRORE ---
+# --- FUNZIONI DATABASE ---
 def carica_preferiti_db():
     if supabase:
         try:
             risposta = supabase.table("wishlist").select("asin").execute()
             return set(r["asin"] for r in risposta.data)
-        except Exception as e:
-            st.error(f"Impossibile caricare i salvati dal Database: {e}")
+        except Exception:
             return set()
     return set()
 
@@ -35,7 +34,6 @@ def salva_preferito_db(asin):
         try:
             supabase.table("wishlist").insert({"asin": asin}).execute()
         except Exception as e:
-            # Mostra un popup se fallisce il salvataggio
             st.toast(f"⚠️ Errore salvataggio nel DB: {e}")
 
 def rimuovi_preferito_db(asin):
@@ -177,23 +175,16 @@ else:
                 
                 with cols[j]:
                     with st.container(border=True):
-                        c_titolo, c_cuore = st.columns([5, 1])
-                        with c_cuore:
-                            st.button(
-                                "❤️" if is_saved else "🤍", 
-                                key=f"btn_{asin}", 
-                                on_click=toggle_salvataggio, 
-                                args=(asin,),
-                                help="Aggiungi o rimuovi dai Salvati"
-                            )
-                        with c_titolo:
-                            titolo_html = f"""
-                            <div style='height: 55px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-weight: bold; font-size: 1.05em;'>
-                                {row_data['Titolo']}
-                            </div>
-                            """
-                            st.markdown(titolo_html, unsafe_allow_html=True)
                         
+                        # 1. TITOLO (Centrato e senza cuoricino di fianco)
+                        titolo_html = f"""
+                        <div style='height: 55px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-weight: bold; font-size: 1.05em; text-align: center;'>
+                            {row_data['Titolo']}
+                        </div>
+                        """
+                        st.markdown(titolo_html, unsafe_allow_html=True)
+                        
+                        # 2. IMMAGINE (Gigante e centrata)
                         url = row_data['Copertina']
                         if pd.notna(url) and str(url).startswith('http'):
                             img_html = f"""
@@ -206,18 +197,32 @@ else:
                         
                         st.markdown(img_html, unsafe_allow_html=True)
                         
+                        # 3. INFO E METADATI (Centrati)
                         autore_intero = str(row_data.get('Autore', 'N/D'))
                         autore_corto = autore_intero[:35] + "..." if len(autore_intero) > 35 else autore_intero
                         
                         info_html = f"""
-                        <div style='height: 80px; line-height: 1.4;'>
+                        <div style='height: 80px; line-height: 1.4; text-align: center;'>
                             <span style='font-size: 0.85em; color: gray;'>Di: <b>{autore_corto}</b></span><br>
                             <span style='font-size: 0.9em;'>⭐⭐⭐⭐⭐ ({int(row_data['Recensioni'])})</span><br>
                             <span style='font-size: 0.8em; color: gray;'>Reparto: {row_data.get('Categoria', 'N/D')}</span>
                         </div>
                         """
                         st.markdown(info_html, unsafe_allow_html=True)
+
+                        # 4. CUORICINO PERFETTAMENTE CENTRATO IN BASSO
+                        c_vuota1, c_cuore, c_vuota2 = st.columns([1, 1, 1])
+                        with c_cuore:
+                            st.button(
+                                "❤️" if is_saved else "🤍", 
+                                key=f"btn_{asin}", 
+                                on_click=toggle_salvataggio, 
+                                args=(asin,),
+                                use_container_width=True,
+                                help="Aggiungi o rimuovi dai Salvati"
+                            )
                         
+                        # 5. PULSANTE AMAZON
                         amz_link = f"https://www.amazon.it/dp/{asin}" if pd.notna(asin) else "#"
                         st.link_button("Vedi su Amazon", amz_link, type="primary", use_container_width=True)
 
