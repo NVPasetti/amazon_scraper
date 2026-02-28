@@ -19,14 +19,14 @@ except Exception as e:
     st.error(f"Errore di connessione a Supabase: {e}")
     supabase = None
 
-# --- FUNZIONI DATABASE ---
+# --- FUNZIONI DATABASE CON AVVISI DI ERRORE ---
 def carica_preferiti_db():
     if supabase:
         try:
-            # Scarica tutta la colonna 'asin' dalla tabella 'wishlist'
             risposta = supabase.table("wishlist").select("asin").execute()
             return set(r["asin"] for r in risposta.data)
-        except Exception:
+        except Exception as e:
+            st.error(f"Impossibile caricare i salvati dal Database: {e}")
             return set()
     return set()
 
@@ -34,21 +34,21 @@ def salva_preferito_db(asin):
     if supabase:
         try:
             supabase.table("wishlist").insert({"asin": asin}).execute()
-        except Exception:
-            pass # Probabilmente esiste già (Primary Key)
+        except Exception as e:
+            # Mostra un popup se fallisce il salvataggio
+            st.toast(f"⚠️ Errore salvataggio nel DB: {e}")
 
 def rimuovi_preferito_db(asin):
     if supabase:
         try:
             supabase.table("wishlist").delete().eq("asin", asin).execute()
-        except Exception:
-            pass
+        except Exception as e:
+            st.toast(f"⚠️ Errore rimozione dal DB: {e}")
 
 def svuota_salvati_db():
     st.session_state.libri_salvati.clear()
     if supabase:
         try:
-            # Elimina tutti i record dove l'asin non è nullo (svuota la tabella)
             supabase.table("wishlist").delete().neq("asin", "dummy_value").execute()
         except Exception as e:
             st.error(f"Errore nello svuotamento: {e}")
@@ -119,7 +119,6 @@ else:
 
     st.sidebar.markdown("---")
     
-    # Sicurezza per evitare che un riavvio lento rompa il conteggio
     num_salvati = len(st.session_state.libri_salvati) if isinstance(st.session_state.libri_salvati, set) else 0
     st.sidebar.metric(label="❤️ Salvati", value=f"{num_salvati} libri")
     
@@ -131,7 +130,6 @@ else:
     # ==========================================
     # CONTROLLO CAMBIO FILTRI
     # ==========================================
-    # Se l'utente cambia un filtro, resettiamo la vista ai primi 150 libri
     if (sel_cat_amz != st.session_state.filtro_cat or 
         min_recensioni_filtro != st.session_state.filtro_rec or 
         mostra_solo_salvati != st.session_state.filtro_salvati):
@@ -160,7 +158,6 @@ else:
     st.markdown(f"**{totale_libri}** risultati trovati")
     st.markdown("---")
 
-    # Tagliamo il dataframe per mostrare solo i libri fino al limite attuale
     df_mostrato = df_filtrato.iloc[:st.session_state.limite_libri]
 
     # ==========================================
@@ -180,7 +177,6 @@ else:
                 
                 with cols[j]:
                     with st.container(border=True):
-                        # 1. RIGA TITOLO E CUORE
                         c_titolo, c_cuore = st.columns([5, 1])
                         with c_cuore:
                             st.button(
@@ -191,7 +187,6 @@ else:
                                 help="Aggiungi o rimuovi dai Salvati"
                             )
                         with c_titolo:
-                            # Titolo fisso a 55px (massimo 2 righe, poi "...")
                             titolo_html = f"""
                             <div style='height: 55px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-weight: bold; font-size: 1.05em;'>
                                 {row_data['Titolo']}
@@ -199,7 +194,6 @@ else:
                             """
                             st.markdown(titolo_html, unsafe_allow_html=True)
                         
-                        # 2. IMMAGINE GIGANTE MA CONTENUTA (450px di altezza fissa)
                         url = row_data['Copertina']
                         if pd.notna(url) and str(url).startswith('http'):
                             img_html = f"""
@@ -212,7 +206,6 @@ else:
                         
                         st.markdown(img_html, unsafe_allow_html=True)
                         
-                        # 3. INFO E METADATI (Altezza fissa a 80px)
                         autore_intero = str(row_data.get('Autore', 'N/D'))
                         autore_corto = autore_intero[:35] + "..." if len(autore_intero) > 35 else autore_intero
                         
@@ -225,7 +218,6 @@ else:
                         """
                         st.markdown(info_html, unsafe_allow_html=True)
                         
-                        # 4. PULSANTE AMAZON
                         amz_link = f"https://www.amazon.it/dp/{asin}" if pd.notna(asin) else "#"
                         st.link_button("Vedi su Amazon", amz_link, type="primary", use_container_width=True)
 
@@ -234,7 +226,6 @@ else:
     # ==========================================
     if st.session_state.limite_libri < totale_libri:
         st.markdown("---")
-        # Centriamo il pulsante usando le colonne
         col_vuota1, col_bottone, col_vuota2 = st.columns([1, 2, 1])
         with col_bottone:
             if st.button("⬇️ Carica altri libri", use_container_width=True):
