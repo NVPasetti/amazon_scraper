@@ -5,6 +5,8 @@ from supabase import create_client, Client
 
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Scouting Amazon", layout="wide")
+chiave_test = st.secrets.get("SUPABASE_KEY", "Nessuna chiave trovata")
+st.info(f"🔍 TEST SEGRETI: La chiave inizia con '{chiave_test[:10]}...' ed è lunga {len(chiave_test)} caratteri.")
 
 # --- CONNESSIONE A SUPABASE ---
 @st.cache_resource
